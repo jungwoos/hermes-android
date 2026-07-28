@@ -49,7 +49,7 @@ jobs:
           import pathlib
           import re
 
-          match = re.search(r"^version:\\s*([^+\\s]+)", pathlib.Path("pubspec.yaml").read_text(), re.M)
+          match = re.search(r"^version:\s*([^+\s]+)", pathlib.Path("pubspec.yaml").read_text(), re.M)
           if not match:
               raise SystemExit("pubspec.yaml is missing a version line")
           print(match.group(1))
