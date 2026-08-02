@@ -13,10 +13,10 @@ reverse-proxy setup, troubleshooting — see the
 [upstream README](https://github.com/rusty4444/hermes-android/blob/main/README.md). That material is
 not duplicated here.
 
-![The chat screen on a new session: plasma orb, suggestion cards and the glass composer](docs/design/chat-new-session.png)
+![Three screens in dark mode: a new chat session, the skills list, and settings](docs/design/chat-new-session.png)
 
-*A new session in dark mode. On a phone the chat fills the screen; on a tablet or an unfolded device
-it sits beside a pinned session panel.*
+*Left to right: a new session, the skills list, and settings — dark mode on a phone. On a tablet or
+an unfolded device these render beside a pinned session panel instead of filling the screen.*
 
 ## The design
 
