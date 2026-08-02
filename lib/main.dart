@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/services/connection_manager.dart';
 import 'core/screens/session_list_screen.dart';
+import 'core/theme.dart';
 import 'core/utils/responsive.dart';
+import 'core/widgets/aurora.dart';
+import 'core/widgets/glass.dart';
+import 'core/widgets/plasma_orb.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,131 +21,61 @@ class HermesApp extends StatefulWidget {
 
   @override
   State<HermesApp> createState() => HermesAppState();
-
-  static ThemeMode getThemeMode(SharedPreferences prefs) {
-    final stored = prefs.getString('theme_mode') ?? 'system';
-    switch (stored) {
-      case 'dark':
-        return ThemeMode.dark;
-      case 'light':
-        return ThemeMode.light;
-      default:
-        return ThemeMode.system;
-    }
-  }
-
-  static Future<void> setThemeMode(
-    SharedPreferences prefs,
-    ThemeMode mode,
-  ) async {
-    final value = mode == ThemeMode.dark
-        ? 'dark'
-        : mode == ThemeMode.light
-        ? 'light'
-        : 'system';
-    await prefs.setString('theme_mode', value);
-  }
 }
 
 class HermesAppState extends State<HermesApp> {
   @override
-  Widget build(BuildContext context) {
-    const gold = Color(0xFFD4AF37);
+  void initState() {
+    super.initState();
+    HermesThemeMode.notifier.value = HermesThemeMode.fromPrefsValue(
+      widget.connManager.prefs.getString('theme_mode'),
+    );
+  }
 
-    return MaterialApp(
-      title: 'Hermes Agent',
-      themeMode: HermesApp.getThemeMode(widget.connManager.prefs),
-      theme: ThemeData(
-        colorSchemeSeed: gold,
-        brightness: Brightness.light,
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFFAFAFA),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          centerTitle: true,
-        ),
-        cardTheme: CardThemeData(
-          color: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.withValues(alpha: 0.15)),
-          ),
-        ),
-        floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: gold,
-          foregroundColor: Colors.white,
-        ),
-      ),
-      darkTheme: ThemeData(
-        colorSchemeSeed: gold,
-        brightness: Brightness.dark,
-        useMaterial3: true,
-        scaffoldBackgroundColor: Colors.black,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.black,
-          elevation: 0,
-          centerTitle: true,
-        ),
-        cardTheme: CardThemeData(
-          color: const Color(0xFF1A1A1A),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
-          ),
-        ),
-        floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: gold,
-          foregroundColor: Colors.black,
-        ),
-      ),
-      home: HomeScreen(connManager: widget.connManager),
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: HermesThemeMode.notifier,
+      builder: (context, mode, _) {
+        return MaterialApp(
+          title: 'Hermes Agent',
+          themeMode: mode,
+          theme: hermesTheme(Brightness.light),
+          darkTheme: hermesTheme(Brightness.dark),
+          home: HomeScreen(connManager: widget.connManager),
+        );
+      },
     );
   }
 }
 
-/// Brand header used across screens.
-class HermesHeader extends StatelessWidget {
-  final String? subtitle;
-  const HermesHeader({super.key, this.subtitle});
+/// The inline error banner shared by every connection dialog.
+class _DialogErrorBox extends StatelessWidget {
+  const _DialogErrorBox(this.message);
+
+  final String message;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 48, 20, 20),
-      decoration: const BoxDecoration(
-        color: Colors.black,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFD4AF37), width: 0.5),
-        ),
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: hermesAlert.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(HermesRadius.chip),
+        border: Border.all(color: hermesAlert.withValues(alpha: 0.35)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Text(
-            'HERMES',
-            style: GoogleFonts.cinzel(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFFD4AF37),
-              letterSpacing: 6,
+          const Icon(Icons.error_outline, color: hermesAlert, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: hermesAlert, fontSize: 13),
             ),
           ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle!,
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey[600],
-                letterSpacing: 1,
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -270,38 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (error != null)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: Colors.red.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: Colors.red,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          error!,
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              if (error != null) _DialogErrorBox(error!),
               TextField(
                 controller: ctrl,
                 decoration: const InputDecoration(
@@ -409,41 +311,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     'Memory, Skills and Cron tabs. Leave username/password '
                     'blank for an open dashboard, or enable proxied mode when '
                     'your reverse proxy injects dashboard auth.',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    style: TextStyle(
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
                   ),
                 ),
-                if (error != null)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.red.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          color: Colors.red,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            error!,
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                if (error != null) _DialogErrorBox(error!),
                 TextField(
                   controller: gatewayPrefixCtrl,
                   decoration: const InputDecoration(
@@ -613,110 +488,165 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildConnectionCard(SavedConnection conn) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: ListTile(
-        leading: const Icon(Icons.router, color: Color(0xFFD4AF37)),
-        title: Text(conn.label),
-        subtitle: Text(
-          '${conn.host}:${conn.port}${conn.gatewayPrefix != null && conn.gatewayPrefix!.isNotEmpty ? conn.gatewayPrefix! : ''}'
-          '  \u2022  Key: ${conn.apiKey.isNotEmpty ? "\u2713" : "\u2717"}',
-          style: TextStyle(color: Colors.grey[600]),
-        ),
-        trailing: PopupMenuButton<String>(
-          onSelected: (v) {
-            if (v == 'delete') {
-              widget.connManager.deleteConnection(conn.id);
-              _refresh();
-            } else if (v == 'edit') {
-              _showEditConnectionDialog(conn);
-            } else if (v == 'apikey') {
-              _showApiKeyDialog(conn);
-            } else if (v == 'dashboard') {
-              _showDashboardAuthDialog(conn);
-            }
-          },
-          itemBuilder: (_) => [
-            const PopupMenuItem(value: 'edit', child: Text('Edit Connection')),
-            const PopupMenuItem(value: 'apikey', child: Text('Update API Key')),
-            const PopupMenuItem(
-              value: 'dashboard',
-              child: Text('Dashboard / Proxy Settings'),
+    final theme = Theme.of(context);
+    final prefix = conn.gatewayPrefix ?? '';
+    final hasKey = conn.apiKey.isNotEmpty;
+
+    return GlassCard(
+      padding: const EdgeInsets.fromLTRB(14, 14, 4, 14),
+      onTap: () => _navigateToSessions(conn),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: hermesAccentGradient,
+              boxShadow: hermesGlow(hermesMagenta, alpha: 0.35, blur: 18),
             ),
-            const PopupMenuItem(
-              value: 'delete',
-              child: Text('Delete', style: TextStyle(color: Colors.red)),
+            child: const Icon(Icons.router, color: Colors.white, size: 21),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  conn.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${conn.host}:${conn.port}$prefix',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-        onTap: () => _navigateToSessions(conn),
+          ),
+          Icon(
+            hasKey ? Icons.lock_outline : Icons.lock_open,
+            size: 16,
+            color: hasKey ? hermesCyan : hermesAlert,
+          ),
+          PopupMenuButton<String>(
+            icon: Icon(
+              Icons.more_vert,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            onSelected: (v) {
+              if (v == 'delete') {
+                widget.connManager.deleteConnection(conn.id);
+                _refresh();
+              } else if (v == 'edit') {
+                _showEditConnectionDialog(conn);
+              } else if (v == 'apikey') {
+                _showApiKeyDialog(conn);
+              } else if (v == 'dashboard') {
+                _showDashboardAuthDialog(conn);
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'edit', child: Text('Edit Connection')),
+              const PopupMenuItem(value: 'apikey', child: Text('Update API Key')),
+              const PopupMenuItem(
+                value: 'dashboard',
+                child: Text('Dashboard / Proxy Settings'),
+              ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Text('Delete', style: TextStyle(color: hermesAlert)),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return AuroraScaffold(
       appBar: AppBar(
         title: Text(
           'HERMES',
-          style: GoogleFonts.cinzel(
+          style: hermesBrandTextStyle(
             fontWeight: FontWeight.w700,
-            letterSpacing: 6,
-            fontSize: 22,
+            letterSpacing: 8,
+            fontSize: 19,
           ),
         ),
         centerTitle: true,
       ),
-      body: _connections.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.cloud_outlined, size: 64, color: Colors.grey[800]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No connections',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tap + to add a remote Hermes Gateway\n(API Server, port 8642)',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            )
-          : LayoutBuilder(
-              builder: (context, constraints) {
-                if (Responsive.isTablet(context)) {
-                  return GridView.builder(
-                    padding: const EdgeInsets.all(16),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: Responsive.gridColumns(context),
-                      childAspectRatio: 2.5,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                    ),
-                    itemCount: _connections.length,
-                    itemBuilder: (_, i) =>
-                        _buildConnectionCard(_connections[i]),
-                  );
-                }
-                return ListView.builder(
-                  itemCount: _connections.length,
-                  itemBuilder: (_, i) => _buildConnectionCard(_connections[i]),
-                );
-              },
-            ),
-      floatingActionButton: FloatingActionButton(
+      body: _connections.isEmpty ? _buildEmptyState() : _buildConnectionList(),
+      floatingActionButton: GradientOrbButton(
+        icon: Icons.add,
+        size: 58,
         tooltip: 'Add Connection',
         onPressed: _showAddDialog,
-        child: const Icon(Icons.add, color: Colors.black),
       ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    final theme = Theme.of(context);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const PlasmaOrb(size: 168),
+            const SizedBox(height: 36),
+            Text(
+              'No connections',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Tap + to add a remote Hermes Gateway\n(API Server, port 8642)',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConnectionList() {
+    if (Responsive.isTablet(context)) {
+      return GridView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: Responsive.gridColumns(context),
+          childAspectRatio: 3.2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+        ),
+        itemCount: _connections.length,
+        itemBuilder: (_, i) => _buildConnectionCard(_connections[i]),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      itemCount: _connections.length,
+      separatorBuilder: (_, index) => const SizedBox(height: 12),
+      itemBuilder: (_, i) => _buildConnectionCard(_connections[i]),
     );
   }
 }
@@ -915,34 +845,7 @@ class _AddDialogState extends State<_AddDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (_error != null) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      color: Colors.red,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: Colors.red, fontSize: 13),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            if (_error != null) _DialogErrorBox(_error!),
             TextField(
               controller: _label,
               decoration: const InputDecoration(labelText: 'Label'),
@@ -988,12 +891,16 @@ class _AddDialogState extends State<_AddDialog> {
                     Icon(
                       _showDashboard ? Icons.expand_less : Icons.expand_more,
                       size: 20,
-                      color: Colors.grey[500],
+                      color: Theme.of(context).colorScheme.primary,
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 6),
                     Text(
                       'Custom proxy and dashboard details',
-                      style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),
@@ -1034,7 +941,11 @@ class _AddDialogState extends State<_AddDialog> {
                 child: Text(
                   'Optional. For the Memory/Cron/Skills/Settings tabs. Leave '
                   'blank to use the default dashboard port (9119) with no login.',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 12,
+                    height: 1.5,
+                  ),
                 ),
               ),
               TextField(

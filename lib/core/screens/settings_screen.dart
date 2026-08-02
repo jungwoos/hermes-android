@@ -3,12 +3,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/connection_manager.dart';
-import '../../main.dart';
+import '../theme.dart';
+import '../widgets/aurora.dart';
+import '../widgets/glass.dart';
+import '../widgets/status_view.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsScreen extends StatefulWidget {
   final SavedConnection connection;
-  const SettingsScreen({required this.connection, super.key});
+
+  /// When true the screen is rendered inside the split-view detail pane, so
+  /// it must not show a back button.
+  final bool embedded;
+
+  const SettingsScreen({
+    required this.connection,
+    this.embedded = false,
+    super.key,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -136,12 +148,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return AuroraScaffold(
+      intensity: 0.7,
       appBar: AppBar(
+        automaticallyImplyLeading: !widget.embedded,
         title: const Text('Settings'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
+          FaintIconButton(
+            icon: Icons.refresh,
             onPressed: _loading ? null : _loadData,
             tooltip: 'Refresh',
           ),
@@ -153,79 +167,85 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const StatusView.loading();
     }
 
     if (_error != null && _modelOptions == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.orange),
-              const SizedBox(height: 16),
-              Text(
-                'Failed to load settings',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                style: Theme.of(context).textTheme.bodySmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
-            ],
-          ),
-        ),
+      return StatusView.error(
+        title: 'Failed to load settings',
+        message: _error!,
+        onRetry: _loadData,
       );
     }
 
+    final theme = Theme.of(context);
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
       children: [
         // ---- Section: Model ----
-        _buildSectionHeader('Model Selection'),
+        const SectionLabel('Model Selection'),
         if (_modelInfo != null)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
+          GlassCard(
+            glow: true,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: hermesAccentGradient,
+                        boxShadow: hermesGlow(
+                          hermesMagenta,
+                          alpha: 0.35,
+                          blur: 14,
+                        ),
+                      ),
+                      child: const Icon(
                         Icons.smart_toy,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Current Model',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${_modelInfo!['model'] ?? '???'}  \nvia `${_modelInfo!['provider'] ?? '???'}`',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  if (_modelInfo!['effective_context_length'] != null &&
-                      _modelInfo!['effective_context_length'] != 0)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Context: ${_modelInfo!['effective_context_length']} tokens',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                        size: 17,
+                        color: Colors.white,
                       ),
                     ),
-                ],
-              ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Current Model',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '${_modelInfo!['model'] ?? '???'}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'via ${_modelInfo!['provider'] ?? '???'}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (_modelInfo!['effective_context_length'] != null &&
+                    _modelInfo!['effective_context_length'] != 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Context: ${_modelInfo!['effective_context_length']} tokens',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         const SizedBox(height: 12),
@@ -274,113 +294,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _applyModel,
-              icon: const Icon(Icons.check),
-              label: const Text('Apply Model'),
-            ),
+          GradientPillButton(
+            label: 'Apply Model',
+            icon: Icons.check,
+            expand: true,
+            onPressed: _applyModel,
           ),
         ],
         const SizedBox(height: 16),
 
         // Success/error messages
         if (_successMsg != null)
-          Card(
-            color: Colors.green.shade900,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                _successMsg!,
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-          ),
+          StatusMessageCard.success(message: _successMsg!),
         if (_error != null && _modelOptions != null)
-          Card(
-            color: Colors.red.shade900,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(_error!, style: const TextStyle(color: Colors.white)),
-            ),
-          ),
+          StatusMessageCard.error(message: _error!),
 
         const SizedBox(height: 16),
 
         // ---- Section: Theme ----
-        _buildSectionHeader('Appearance'),
+        const SectionLabel('Appearance'),
         _ThemeToggle(),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         _VerboseToggle(),
-        const SizedBox(height: 16),
-
-        const SizedBox(height: 16),
+        const SizedBox(height: 28),
 
         // ---- Section: Voice ----
-        _buildSectionHeader('Voice'),
+        const SectionLabel('Voice'),
         _VoicePicker(),
-        const SizedBox(height: 16),
+        const SizedBox(height: 28),
 
         // ---- Section: Session Sources ----
-        _buildSectionHeader('Session Sources'),
+        const SectionLabel('Session Sources'),
         _SessionSourcesFilter(connectionId: widget.connection.id),
-        const SizedBox(height: 16),
+        const SizedBox(height: 28),
 
         // ---- Section: Connection ----
-        _buildSectionHeader('Connection'),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _infoRow('Label', widget.connection.label),
-                const SizedBox(height: 4),
-                _infoRow('Host', widget.connection.host),
-                const SizedBox(height: 4),
-                _infoRow('Port', '${widget.connection.port}'),
-                const SizedBox(height: 4),
-                _infoRow('Base URL', widget.connection.baseUrl),
-              ],
-            ),
+        const SectionLabel('Connection'),
+        GlassCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _infoRow('Label', widget.connection.label),
+              const SizedBox(height: 8),
+              _infoRow('Host', widget.connection.host),
+              const SizedBox(height: 8),
+              _infoRow('Port', '${widget.connection.port}'),
+              const SizedBox(height: 8),
+              _infoRow('Base URL', widget.connection.baseUrl),
+            ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 28),
 
         // ---- Section: About ----
-        _buildSectionHeader('About'),
+        const SectionLabel('About'),
         _AboutCard(),
       ],
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: Theme.of(context).colorScheme.primary,
-        ),
-      ),
-    );
-  }
-
   Widget _infoRow(String label, String value) {
+    final theme = Theme.of(context);
     return Row(
       children: [
         SizedBox(
-          width: 80,
+          width: 84,
           child: Text(
             label,
-            style: const TextStyle(
+            style: theme.textTheme.bodySmall?.copyWith(
               fontWeight: FontWeight.w500,
-              color: Colors.grey,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ),
-        Expanded(child: Text(value, overflow: TextOverflow.ellipsis)),
+        Expanded(
+          child: Text(
+            value,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
       ],
     );
   }
@@ -433,26 +426,34 @@ class _AboutCardState extends State<_AboutCard> {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Hermes Agent for Android',
-              style: TextStyle(fontWeight: FontWeight.bold),
+    final theme = Theme.of(context);
+    return GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Hermes Agent for Android',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 4),
-            Text('Version ${_version.isNotEmpty ? _version : '…'}'),
-            const SizedBox(height: 8),
-            const Text(
-              'Browse and manage your Hermes Agent sessions from your phone. '
-              'Connects to a Hermes dashboard running on your local network.',
-              style: TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Version ${_version.isNotEmpty ? _version : '…'}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.primary,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Browse and manage your Hermes Agent sessions from your phone. '
+            'Connects to a Hermes dashboard running on your local network.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.5,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -486,10 +487,16 @@ class _VerboseToggleState extends State<_VerboseToggle> {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: SwitchListTile(
         title: const Text('Verbose Mode'),
-        subtitle: const Text('Show tool calls, thinking, and message metadata'),
+        subtitle: Text(
+          'Show tool calls, thinking, and message metadata',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
         secondary: const Icon(Icons.terminal),
         value: _verbose,
         onChanged: _set,
@@ -504,26 +511,14 @@ class _ThemeToggle extends StatefulWidget {
 }
 
 class _ThemeToggleState extends State<_ThemeToggle> {
-  String _mode = 'system';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadMode();
-  }
-
-  Future<void> _loadMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() => _mode = prefs.getString('theme_mode') ?? 'system');
-  }
+  String _mode = HermesThemeMode.toPrefsValue(HermesThemeMode.notifier.value);
 
   Future<void> _setMode(String mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('theme_mode', mode);
     if (!mounted) return;
     setState(() => _mode = mode);
-    final rootCtx = context.findAncestorStateOfType<HermesAppState>();
-    rootCtx?.setState(() {});
+    HermesThemeMode.notifier.value = HermesThemeMode.fromPrefsValue(mode);
   }
 
   @override
@@ -644,22 +639,25 @@ class _VoicePickerState extends State<_VoicePicker> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Center(child: CircularProgressIndicator()),
+      return const GlassCard(
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
         ),
       );
     }
 
     if (_voices.isEmpty) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text(
-            'No TTS voices found.\\n'
-            'Install Google Text-to-Speech and download voice data.',
-            style: TextStyle(color: Colors.grey),
+      return GlassCard(
+        child: Text(
+          'No TTS voices found.\n'
+          'Install Google Text-to-Speech and download voice data.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            height: 1.5,
           ),
         ),
       );
@@ -762,7 +760,9 @@ class _SessionSourcesFilterState extends State<_SessionSourcesFilter> {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    final theme = Theme.of(context);
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
         children: _knownSources.entries.map((entry) {
           final source = entry.key;
@@ -770,8 +770,14 @@ class _SessionSourcesFilterState extends State<_SessionSourcesFilter> {
           final isVisible = !_excluded.contains(source);
           return CheckboxListTile(
             title: Text(label),
-            subtitle: Text(source,
-                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            subtitle: Text(
+              source,
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             value: isVisible,
             onChanged: (val) => _toggle(source, val ?? true),
             dense: true,

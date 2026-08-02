@@ -8,10 +8,23 @@
 import 'package:flutter/material.dart';
 
 import '../services/connection_manager.dart';
+import '../theme.dart';
+import '../widgets/aurora.dart';
+import '../widgets/glass.dart';
+import '../widgets/status_view.dart';
 
 class CronScreen extends StatefulWidget {
   final SavedConnection connection;
-  const CronScreen({required this.connection, super.key});
+
+  /// When true the screen is rendered inside the split-view detail pane, so
+  /// it must not show a back button.
+  final bool embedded;
+
+  const CronScreen({
+    required this.connection,
+    this.embedded = false,
+    super.key,
+  });
 
   @override
   State<CronScreen> createState() => _CronScreenState();
@@ -119,15 +132,11 @@ class _CronScreenState extends State<CronScreen> {
       }
       if (mounted) {
         setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(paused ? 'Job resumed' : 'Job paused')),
-        );
+        showAppSnackBar(context, paused ? 'Job resumed' : 'Job paused');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.orange),
-        );
+        showAppSnackBar(context, 'Failed: $e', isError: true);
       }
     }
   }
@@ -149,7 +158,10 @@ class _CronScreenState extends State<CronScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: hermesAlert,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -162,18 +174,11 @@ class _CronScreenState extends State<CronScreen> {
       await _client.apiDelete('cron/jobs/$jobId');
       if (mounted) {
         setState(() => _jobs.removeWhere((j) => j['id'] == jobId));
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Deleted "$name"')));
+        showAppSnackBar(context, 'Deleted "$name"');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Delete failed: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        showAppSnackBar(context, 'Delete failed: $e', isError: true);
       }
     }
   }
@@ -184,15 +189,11 @@ class _CronScreenState extends State<CronScreen> {
     try {
       await _client.apiPost('cron/jobs/$jobId/trigger');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Job triggered')));
+        showAppSnackBar(context, 'Job triggered');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.orange),
-        );
+        showAppSnackBar(context, 'Failed: $e', isError: true);
       }
     }
   }
@@ -218,18 +219,11 @@ class _CronScreenState extends State<CronScreen> {
         }
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Cron job added')));
+      showAppSnackBar(context, 'Cron job added');
       await _loadJobs();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to add job: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        showAppSnackBar(context, 'Failed to add job: $e', isError: true);
       }
     }
   }
@@ -251,18 +245,11 @@ class _CronScreenState extends State<CronScreen> {
     try {
       await _client.updateJob(jobId, result);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Cron job updated')));
+      showAppSnackBar(context, 'Cron job updated');
       await _loadJobs();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update job: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        showAppSnackBar(context, 'Failed to update job: $e', isError: true);
       }
     }
   }
@@ -339,12 +326,9 @@ class _CronScreenState extends State<CronScreen> {
                   final schedule = scheduleCtrl.text.trim();
 
                   if (name.isEmpty || prompt.isEmpty || schedule.isEmpty) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Name, prompt, and schedule are required',
-                        ),
-                      ),
+                    showAppSnackBar(
+                      ctx,
+                      'Name, prompt, and schedule are required',
                     );
                     return;
                   }
@@ -371,77 +355,54 @@ class _CronScreenState extends State<CronScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+    return AuroraScaffold(
+      intensity: 0.7,
       appBar: AppBar(
+        automaticallyImplyLeading: !widget.embedded,
         title: const Text('Cron Jobs'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
+          FaintIconButton(
+            icon: Icons.refresh,
+            tooltip: 'Refresh',
             onPressed: _loading ? null : _loadJobs,
           ),
         ],
       ),
       body: _buildBody(),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: GradientOrbButton(
+        icon: Icons.add,
+        size: 58,
         tooltip: 'Add new cron job',
         onPressed: _loading ? null : _showAddJobDialog,
-        child: const Icon(Icons.add),
       ),
     );
   }
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const StatusView.loading();
     }
 
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.orange),
-              const SizedBox(height: 16),
-              Text(
-                'Failed to load cron jobs',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                style: Theme.of(context).textTheme.bodySmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(onPressed: _loadJobs, child: const Text('Retry')),
-            ],
-          ),
-        ),
+      return StatusView.error(
+        title: 'Failed to load cron jobs',
+        message: _error!,
+        onRetry: _loadJobs,
       );
     }
 
     if (_jobs.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.schedule, size: 48, color: Colors.grey[600]),
-            const SizedBox(height: 16),
-            Text('No cron jobs', style: Theme.of(context).textTheme.titleLarge),
-          ],
-        ),
-      );
+      return const StatusView.empty(icon: Icons.schedule, title: 'No cron jobs');
     }
+
+    final theme = Theme.of(context);
 
     return RefreshIndicator(
       onRefresh: _loadJobs,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
         itemCount: _jobs.length,
+        separatorBuilder: (_, index) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           final job = _jobs[index];
           final name = _jobName(job);
@@ -451,161 +412,190 @@ class _CronScreenState extends State<CronScreen> {
           final lastRun = job['last_run_at'] as String?;
           final nextRun = job['next_run_at'] as String?;
           final isNoAgent = job['no_agent'] == true;
+          final stateColor = paused
+              ? theme.colorScheme.onSurfaceVariant
+              : hermesCyan;
 
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: InkWell(
-              onTap: () => _showEditJobDialog(job),
-              borderRadius: BorderRadius.circular(4),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          return GlassCard(
+            padding: const EdgeInsets.fromLTRB(14, 12, 4, 14),
+            onTap: () => _showEditJobDialog(job),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          paused ? Icons.pause_circle : Icons.play_circle,
-                          color: paused ? Colors.orange : Colors.green,
-                          size: 20,
+                    // A live job glows; a paused one goes dim.
+                    Container(
+                      width: 8,
+                      height: 8,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: stateColor,
+                        boxShadow: paused
+                            ? null
+                            : hermesGlow(hermesCyan, alpha: 0.6, blur: 8),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            name,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (isNoAgent)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        margin: const EdgeInsets.only(right: 4),
+                        decoration: BoxDecoration(
+                          color: hermesViolet.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(
+                            HermesRadius.pill,
+                          ),
+                          border: Border.all(
+                            color: hermesViolet.withValues(alpha: 0.45),
                           ),
                         ),
-                        if (isNoAgent)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            margin: const EdgeInsets.only(right: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: const Text(
-                              'script',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.blue,
-                              ),
-                            ),
+                        child: Text(
+                          'script',
+                          style: TextStyle(
+                            fontSize: 10,
+                            letterSpacing: 0.5,
+                            color: theme.colorScheme.primary,
                           ),
-                        PopupMenuButton<String>(
-                          onSelected: (action) {
-                            if (action == 'trigger') _triggerJob(job);
-                            if (action == 'edit') _showEditJobDialog(job);
-                            if (action == 'toggle') _togglePause(job);
-                            if (action == 'delete') _deleteJob(job);
-                          },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
-                              value: 'trigger',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.play_arrow, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Trigger now'),
-                                ],
+                        ),
+                      ),
+                    PopupMenuButton<String>(
+                      icon: Icon(
+                        Icons.more_vert,
+                        size: 20,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      onSelected: (action) {
+                        if (action == 'trigger') _triggerJob(job);
+                        if (action == 'edit') _showEditJobDialog(job);
+                        if (action == 'toggle') _togglePause(job);
+                        if (action == 'delete') _deleteJob(job);
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(
+                          value: 'trigger',
+                          child: Row(
+                            children: [
+                              Icon(Icons.play_arrow, size: 18),
+                              SizedBox(width: 8),
+                              Text('Trigger now'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit, size: 18),
+                              SizedBox(width: 8),
+                              Text('Edit'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'toggle',
+                          child: Row(
+                            children: [
+                              Icon(
+                                paused ? Icons.play_arrow : Icons.pause,
+                                size: 18,
                               ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.edit, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Edit'),
-                                ],
+                              const SizedBox(width: 8),
+                              Text(paused ? 'Resume' : 'Pause'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.delete,
+                                size: 18,
+                                color: hermesAlert,
                               ),
-                            ),
-                            PopupMenuItem(
-                              value: 'toggle',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    paused ? Icons.play_arrow : Icons.pause,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(paused ? 'Resume' : 'Pause'),
-                                ],
+                              SizedBox(width: 8),
+                              Text(
+                                'Delete',
+                                style: TextStyle(color: hermesAlert),
                               ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.delete,
-                                    size: 18,
-                                    color: Colors.red,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Delete',
-                                    style: TextStyle(color: Colors.red),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    if (prompt.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        prompt,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    if (schedule.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.schedule,
-                            size: 14,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              schedule,
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                                color: Colors.grey[500],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    if (lastRun != null && lastRun.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Last: $lastRun',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                      ),
-                    ],
-                    if (nextRun != null && nextRun.isNotEmpty)
-                      Text(
-                        'Next: $nextRun',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                      ),
                   ],
                 ),
-              ),
+                if (prompt.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Text(
+                      prompt,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+                if (schedule.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.schedule,
+                        size: 13,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          schedule,
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (lastRun != null && lastRun.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Last: $lastRun',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                if (nextRun != null && nextRun.isNotEmpty)
+                  Text(
+                    'Next: $nextRun',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
             ),
           );
         },

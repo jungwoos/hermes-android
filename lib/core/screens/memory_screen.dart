@@ -1,17 +1,32 @@
-// Memory browser screen — read memory entries from Hermes config.
+// Memory browser screen — read the agent's memory entries.
 //
-// Memory entries live in config.yaml under the 'memory' key as a list:
-//   memory:
-//     - target: user
-//       content: "User name..."
-//
-// API: GET /api/config returns the full config including memory.
+// Hermes stores built-in memory as text files under ~/.hermes/memories/
+// (USER.md for the user profile, MEMORY.md for cross-session facts), with
+// entries separated by '§' lines. They are fetched through the dashboard's
+// managed-files API (GET /api/files/read). Older Hermes versions kept a
+// list of {target, content} entries in config.yaml, so /api/memory and
+// /api/config remain as fallbacks.
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import '../services/connection_manager.dart';
+import '../theme.dart';
+import '../widgets/aurora.dart';
+import '../widgets/glass.dart';
+import '../widgets/status_view.dart';
 
 class MemoryScreen extends StatefulWidget {
   final SavedConnection connection;
-  const MemoryScreen({required this.connection, super.key});
+
+  /// When true the screen is rendered inside the split-view detail pane, so
+  /// it must not show a back button.
+  final bool embedded;
+
+  const MemoryScreen({
+    required this.connection,
+    this.embedded = false,
+    super.key,
+  });
 
   @override
   State<MemoryScreen> createState() => _MemoryScreenState();
@@ -45,6 +60,31 @@ class _MemoryScreenState extends State<MemoryScreen> {
     super.dispose();
   }
 
+  /// Reads one built-in memory file via the managed-files API and returns
+  /// its '§'-separated entries, or an empty list if unavailable.
+  Future<List<Map<String, dynamic>>> _readMemoryFile(
+    String fileName,
+    String target,
+  ) async {
+    try {
+      final path = Uri.encodeComponent('~/.hermes/memories/$fileName');
+      final res = await _client.apiGet('files/read?path=$path');
+      final dataUrl = res['data_url'] as String? ?? '';
+      final comma = dataUrl.indexOf(',');
+      if (comma < 0) return [];
+      final text = utf8.decode(base64Decode(dataUrl.substring(comma + 1)));
+      return text
+          .split(RegExp(r'\n?§\n?'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .map((e) => {'target': target, 'content': e})
+          .toList();
+    } catch (_) {
+      // File missing / endpoint unavailable — treat as no entries.
+      return [];
+    }
+  }
+
   Future<void> _loadMemory() async {
     setState(() {
       _loading = true;
@@ -52,12 +92,26 @@ class _MemoryScreenState extends State<MemoryScreen> {
     });
 
     try {
-      // Try dedicated /api/memory endpoint first
+      // Primary: the built-in memory files (user profile + long-term facts).
+      final fileEntries = [
+        ...await _readMemoryFile('USER.md', 'user'),
+        ...await _readMemoryFile('MEMORY.md', 'memory'),
+      ];
+      if (fileEntries.isNotEmpty) {
+        setState(() {
+          _entries = fileEntries;
+          _source = 'files';
+          _loading = false;
+        });
+        return;
+      }
+
+      // Fallback: dedicated /api/memory entry list (if the server has one).
       try {
         final memData = await _client.apiGet('memory');
         final items =
             memData['entries'] as List? ?? memData['memory'] as List? ?? [];
-        if (items.isNotEmpty) {
+        if (items.isNotEmpty && items.first is Map) {
           setState(() {
             _entries = items.cast<Map<String, dynamic>>();
             _source = 'api';
@@ -69,35 +123,16 @@ class _MemoryScreenState extends State<MemoryScreen> {
         // Endpoint not available — fall through to config
       }
 
-      // Fallback: read memory from /api/config
+      // Fallback: older Hermes kept memory as a list of {target, content}
+      // in config.yaml. (A map under 'memory' is provider *settings*, not
+      // content, so it is deliberately not rendered here.)
       final config = await _client.apiGet('config');
       final mem = config['memory'];
-
-      if (mem is List) {
-        // Memory is a list of {target, content}
-        setState(() {
-          _entries = mem.cast<Map<String, dynamic>>();
-          _source = 'config';
-          _loading = false;
-        });
-      } else if (mem is Map) {
-        // Memory is a map {key: value}
-        final items = <Map<String, dynamic>>[];
-        mem.forEach((key, value) {
-          items.add({'target': key, 'content': value.toString()});
-        });
-        setState(() {
-          _entries = items;
-          _source = 'config';
-          _loading = false;
-        });
-      } else {
-        setState(() {
-          _entries = [];
-          _source = 'config';
-          _loading = false;
-        });
-      }
+      setState(() {
+        _entries = mem is List ? mem.cast<Map<String, dynamic>>() : [];
+        _source = 'config';
+        _loading = false;
+      });
     } catch (e) {
       setState(() {
         _error = e.toString();
@@ -108,22 +143,28 @@ class _MemoryScreenState extends State<MemoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return AuroraScaffold(
+      intensity: 0.7,
       appBar: AppBar(
+        automaticallyImplyLeading: !widget.embedded,
         title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Text('Memory'),
             if (_source != null)
               Text(
                 'Source: $_source',
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
+          FaintIconButton(
+            icon: Icons.refresh,
+            tooltip: 'Refresh',
             onPressed: _loading ? null : _loadMemory,
           ),
         ],
@@ -134,100 +175,82 @@ class _MemoryScreenState extends State<MemoryScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const StatusView.loading();
     }
 
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.orange),
-              const SizedBox(height: 16),
-              Text(
-                'Failed to load memory',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                style: Theme.of(context).textTheme.bodySmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _loadMemory,
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
+      return StatusView.error(
+        title: 'Failed to load memory',
+        message: _error!,
+        onRetry: _loadMemory,
       );
     }
 
     if (_entries.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.psychology, size: 48, color: Colors.grey),
-            const SizedBox(height: 16),
-            Text(
-              'No memory entries',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Memory entries are cross-session facts the agent remembers.\n'
-              'They are configured in ~/.hermes/config.yaml',
-              textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
-            ),
-          ],
-        ),
+      return const StatusView.empty(
+        icon: Icons.psychology,
+        title: 'No memory entries',
+        message:
+            'Memory entries are cross-session facts the agent remembers.\n'
+            'They are configured in ~/.hermes/config.yaml',
       );
     }
 
     return RefreshIndicator(
       onRefresh: _loadMemory,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         itemCount: _entries.length,
+        separatorBuilder: (_, index) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           final entry = _entries[index];
           final target = entry['target'] as String? ?? 'memory';
           final content = entry['content'] as String? ?? '';
 
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Chip(
-                        label: Text(
-                          target,
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        backgroundColor: target == 'user'
-                            ? Colors.blue.shade800
-                            : Colors.grey.shade800,
-                      ),
-                    ],
+          final theme = Theme.of(context);
+          final isUserEntry = target == 'user';
+
+          return GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // The entry's origin reads as a lit tag for the user profile
+                // and a quiet outline for general long-term facts.
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
                   ),
-                  const SizedBox(height: 8),
-                  Text(content, style: Theme.of(context).textTheme.bodyMedium),
-                ],
-              ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(HermesRadius.pill),
+                    gradient: isUserEntry ? hermesAccentGradient : null,
+                    border: isUserEntry
+                        ? null
+                        : Border.all(
+                            color: HermesGlass.stroke(theme.brightness),
+                          ),
+                    boxShadow: isUserEntry
+                        ? hermesGlow(hermesMagenta, alpha: 0.30, blur: 12)
+                        : null,
+                  ),
+                  child: Text(
+                    target,
+                    style: TextStyle(
+                      fontSize: 11,
+                      letterSpacing: 0.6,
+                      fontWeight: FontWeight.w600,
+                      color: isUserEntry
+                          ? Colors.white
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  content,
+                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
+                ),
+              ],
             ),
           );
         },

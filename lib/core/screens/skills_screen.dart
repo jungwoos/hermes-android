@@ -1,10 +1,23 @@
 // Skills browser — list installed skills with enabled/disabled status.
 import 'package:flutter/material.dart';
 import '../services/connection_manager.dart';
+import '../theme.dart';
+import '../widgets/aurora.dart';
+import '../widgets/glass.dart';
+import '../widgets/status_view.dart';
 
 class SkillsScreen extends StatefulWidget {
   final SavedConnection connection;
-  const SkillsScreen({required this.connection, super.key});
+
+  /// When true the screen is rendered inside the split-view detail pane, so
+  /// it must not show a back button.
+  final bool embedded;
+
+  const SkillsScreen({
+    required this.connection,
+    this.embedded = false,
+    super.key,
+  });
 
   @override
   State<SkillsScreen> createState() => _SkillsScreenState();
@@ -60,12 +73,15 @@ class _SkillsScreenState extends State<SkillsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return AuroraScaffold(
+      intensity: 0.7,
       appBar: AppBar(
+        automaticallyImplyLeading: !widget.embedded,
         title: Text('Skills (${_skills.length})'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
+          FaintIconButton(
+            icon: Icons.refresh,
+            tooltip: 'Refresh',
             onPressed: _loading ? null : _load,
           ),
         ],
@@ -75,79 +91,91 @@ class _SkillsScreenState extends State<SkillsScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const StatusView.loading();
     if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.orange),
-              const SizedBox(height: 16),
-              Text(
-                'Failed to load skills',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                style: Theme.of(context).textTheme.bodySmall,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(onPressed: _load, child: const Text('Retry')),
-            ],
-          ),
-        ),
+      return StatusView.error(
+        title: 'Failed to load skills',
+        message: _error!,
+        onRetry: _load,
       );
     }
     if (_skills.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.extension_off, size: 48, color: Colors.grey[600]),
-            const SizedBox(height: 16),
-            Text(
-              'No skills found',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-          ],
-        ),
+      return const StatusView.empty(
+        icon: Icons.extension_off,
+        title: 'No skills found',
       );
     }
+    final theme = Theme.of(context);
+
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         itemCount: _skills.length,
+        separatorBuilder: (_, index) => const SizedBox(height: 8),
         itemBuilder: (_, i) {
           final skill = _skills[i];
           final name = skill['name'] as String? ?? '';
           final enabled = skill['enabled'] as bool? ?? false;
           final description = skill['description'] as String? ?? '';
-          return Card(
-            margin: const EdgeInsets.only(bottom: 6),
-            child: ListTile(
-              dense: true,
-              title: Text(
-                name,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              ),
-              subtitle: description.isNotEmpty
-                  ? Text(
-                      description,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    )
-                  : null,
-              trailing: Icon(
-                enabled ? Icons.check_circle : Icons.block,
-                color: enabled ? Colors.green : Colors.orange,
-                size: 18,
-              ),
+          final statusColor = enabled
+              ? hermesCyan
+              : theme.colorScheme.onSurfaceVariant;
+
+          return GlassCard(
+            radius: HermesRadius.tile,
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.only(top: 5, right: 12),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: statusColor,
+                    boxShadow: enabled
+                        ? hermesGlow(hermesCyan, alpha: 0.6, blur: 8)
+                        : null,
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (description.isNotEmpty) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Text(
+                  enabled ? 'on' : 'off',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: statusColor,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ],
             ),
           );
         },
