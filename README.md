@@ -15,8 +15,8 @@ not duplicated here.
 
 ![The chat screen on a new session: plasma orb, suggestion cards and the glass composer](docs/design/chat-new-session.png)
 
-*New session, light mode, on the inner display of a Galaxy Z Fold. The pinned session panel sits to
-the left of this crop.*
+*A new session in dark mode. On a phone the chat fills the screen; on a tablet or an unfolded device
+it sits beside a pinned session panel.*
 
 ## The design
 
@@ -58,7 +58,7 @@ widget files:
 - **Home** — plasma orb empty state; saved connections as glass cards with a gradient router avatar
   and a lock badge showing whether an API key is stored.
 - **Chat** — the session name rides in a capsule. An empty conversation shows the orb over a grid of
-  starter prompts. The composer is a blurred glass pill holding the voice controls and a gradient
+  starter prompts. The composer is a blurred glass pill holding the dictation button and a gradient
   send orb. User messages are lit gradient capsules; the assistant answers from a frosted panel.
 - **Sessions** — glass cards, with a glowing dot on live sessions and a hollow ring on dormant ones.
 - **Memory / Cron / Skills / Settings** — glass cards on the aurora, under `SectionLabel` headers.

@@ -63,7 +63,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final FlutterTts _flutterTts = FlutterTts();
   bool _speechAvailable = false;
   bool _listening = false;
-  bool _voiceReplyEnabled = true;
+  // Replies are spoken whenever the message was dictated. There is no longer
+  // a mute control in the composer, so this is no longer user-configurable.
   bool _awaitingVoiceReply = false;
   String? _voiceStatus;
   String? _sttLocaleId;
@@ -224,7 +225,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _speakAssistantText(String text) async {
     final spokenText = text.trim();
-    if (spokenText.isEmpty || !_voiceReplyEnabled) return;
+    if (spokenText.isEmpty) return;
     await _flutterTts.stop();
     await _flutterTts.speak(spokenText);
   }
@@ -365,7 +366,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_sending || _streaming) return;
 
     _textController.text = '';
-    _awaitingVoiceReply = speakResponse && _voiceReplyEnabled;
+    _awaitingVoiceReply = speakResponse;
 
     // Build conversation history for SSE request
     final history = <Map<String, dynamic>>[];
@@ -628,29 +629,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      NeonIconButton(
-                        icon: _voiceReplyEnabled
-                            ? Icons.volume_up
-                            : Icons.volume_off,
-                        size: 40,
-                        active: _voiceReplyEnabled,
-                        tooltip: _voiceReplyEnabled
-                            ? 'Spoken replies on'
-                            : 'Spoken replies off',
-                        onPressed: () {
-                          setState(
-                            () => _voiceReplyEnabled = !_voiceReplyEnabled,
-                          );
-                          if (!_voiceReplyEnabled) _flutterTts.stop();
-                        },
-                      ),
                       Expanded(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          padding: const EdgeInsets.only(left: 16, right: 10),
                           child: TextField(
                             controller: _textController,
                             decoration: const InputDecoration(
-                              hintText: 'Ask Hermes anything…',
+                              hintText: 'Ask anything…',
                               filled: false,
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
