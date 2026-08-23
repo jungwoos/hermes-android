@@ -112,6 +112,64 @@ void main() {
     );
   });
 
+  test('unwraps the gateway event envelope', () async {
+    // Every event arrives as {"method":"event","params":{type,session_id,
+    // payload}}; matching the outer name would collapse them into one stream.
+    final events = <RpcEvent>[];
+    client.events.listen(events.add);
+
+    transport.deliver(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'method': 'event',
+        'params': {
+          'type': 'message.delta',
+          'session_id': 's1',
+          'payload': {'text': 'hi'},
+        },
+      }),
+    );
+    await pumpEventQueue();
+
+    expect(events.single.method, 'message.delta');
+    expect(events.single.params['text'], 'hi');
+    expect(events.single.sessionId, 's1');
+  });
+
+  test('gateway.ready arrives inside the envelope too', () async {
+    var settled = false;
+    unawaited(client.ready.then((_) => settled = true));
+
+    transport.deliver(
+      jsonEncode({
+        'method': 'event',
+        'params': {
+          'type': 'gateway.ready',
+          'payload': {'skin': {}},
+        },
+      }),
+    );
+    await pumpEventQueue();
+
+    expect(settled, isTrue);
+  });
+
+  test('an envelope without a payload yields empty params', () async {
+    final events = <RpcEvent>[];
+    client.events.listen(events.add);
+
+    transport.deliver(
+      jsonEncode({
+        'method': 'event',
+        'params': {'type': 'turn.end', 'session_id': 's1'},
+      }),
+    );
+    await pumpEventQueue();
+
+    expect(events.single.method, 'turn.end');
+    expect(events.single.params, isEmpty);
+  });
+
   test('routes id-less frames to the event stream', () async {
     final events = <RpcEvent>[];
     client.events.listen(events.add);
@@ -160,7 +218,7 @@ void main() {
     expect(events.single.method, 'message.complete');
   });
 
-  test('gateway.ready completes the handshake future', () async {
+  test('a bare gateway.ready frame still completes the handshake', () async {
     var settled = false;
     unawaited(client.ready.then((_) => settled = true));
 

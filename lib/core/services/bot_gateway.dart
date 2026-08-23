@@ -165,12 +165,10 @@ class BotGateway {
   Future<void> close() => _rpc.close();
 
   static Future<RpcTransport> _openWebSocket(Uri uri) async {
-    final channel = IOWebSocketChannel.connect(
-      uri,
-      // The gateway advertises this subprotocol; naming it keeps the upgrade
-      // unambiguous when a proxy sits in front of the dashboard.
-      protocols: const ['hermes-gateway-v1'],
-    );
+    // No subprotocol: the gateway does not select one on the ticket path, and
+    // offering `hermes-gateway-v1` fails the upgrade with "server sent no
+    // subprotocol" (verified against a live dashboard).
+    final channel = IOWebSocketChannel.connect(uri);
     await channel.ready;
     return _ChannelTransport(channel);
   }

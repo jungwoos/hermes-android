@@ -35,11 +35,21 @@ class RpcError implements Exception {
 }
 
 /// A server-pushed notification (no id), e.g. `message.delta`.
+///
+/// The gateway wraps every event in one envelope —
+/// `{"method":"event","params":{"type":…,"session_id":…,"payload":{…}}}` —
+/// so [method] is the unwrapped `type` and [params] the payload. Verified
+/// against a live gateway; matching on the outer `event` name instead would
+/// see one undifferentiated stream.
 class RpcEvent {
-  const RpcEvent(this.method, this.params);
+  const RpcEvent(this.method, this.params, {this.sessionId});
 
   final String method;
   final Map<String, dynamic> params;
+
+  /// The session the event belongs to; events for other sessions share the
+  /// socket when more than one is attached.
+  final String? sessionId;
 }
 
 class HermesRpcClient {
@@ -113,10 +123,19 @@ class HermesRpcClient {
     final method = frame['method'] as String?;
 
     if (id == null && method != null) {
-      if (method == 'gateway.ready' && !_ready.isCompleted) _ready.complete();
-      final params = frame['params'];
+      final raw = frame['params'];
+      final params = raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+      final event = method == 'event'
+          ? (params['type'] as String?) ?? 'event'
+          : method;
+      final payload = method == 'event' ? params['payload'] : params;
+      if (event == 'gateway.ready' && !_ready.isCompleted) _ready.complete();
       _events.add(
-        RpcEvent(method, params is Map<String, dynamic> ? params : const {}),
+        RpcEvent(
+          event,
+          payload is Map<String, dynamic> ? payload : const {},
+          sessionId: params['session_id'] as String?,
+        ),
       );
       return;
     }

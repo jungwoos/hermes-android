@@ -41,8 +41,14 @@ class ScriptedTransport implements RpcTransport {
   @override
   Future<void> close() => _in.close();
 
-  void push(String method, Map<String, dynamic> params) =>
-      _in.add(jsonEncode({'method': method, 'params': params}));
+  /// Pushes an event in the gateway's envelope shape.
+  void pushEvent(String type, Map<String, dynamic> payload) => _in.add(
+    jsonEncode({
+      'jsonrpc': '2.0',
+      'method': 'event',
+      'params': {'type': type, 'session_id': 's1', 'payload': payload},
+    }),
+  );
 }
 
 // Shapes captured from a live gated dashboard.
@@ -137,9 +143,9 @@ void main() {
     gateway.events.listen((e) => seen.add(e.method));
 
     await gateway.submit('s1', 'hello');
-    transport.push('message.delta', {'text': 'hi'});
-    transport.push('message.complete', {});
-    transport.push('turn.end', {});
+    transport.pushEvent('message.delta', {'text': 'hi'});
+    transport.pushEvent('message.complete', {});
+    transport.pushEvent('turn.end', {});
     await pumpEventQueue();
 
     expect(transport.calls.single['params'], {
