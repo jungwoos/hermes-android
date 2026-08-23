@@ -5,6 +5,8 @@
 // a bot is reached through the dashboard's JSON-RPC socket, where a single
 // dashboard session covers every profile. The conversation itself is the same
 // row the desktop opens, so both clients write one history.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
@@ -37,9 +39,20 @@ class BotChatScreen extends StatefulWidget {
   State<BotChatScreen> createState() => _BotChatScreenState();
 }
 
-class _BotChatScreenState extends State<BotChatScreen> {
+class _BotChatScreenState extends State<BotChatScreen>
+    with WidgetsBindingObserver {
   BotGateway? _gateway;
   DashboardClient? _dashboard;
+  Timer? _poll;
+
+  /// Last size the host reported, so a desktop turn is noticed without
+  /// re-reading the whole transcript every few seconds.
+  int? _knownMessageCount;
+
+  /// How often the transcript is checked for changes made elsewhere. The
+  /// gateway delivers turn events to one client only — whoever submitted —
+  /// so a conversation the desktop is driving has to be polled for.
+  static const _pollInterval = Duration(seconds: 6);
   final _messages = <BotMessage>[];
   final _textController = TextEditingController();
   final _scrollController = ScrollController();
@@ -56,11 +69,21 @@ class _BotChatScreenState extends State<BotChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _open();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Coming back to the app is the moment a stale transcript is most
+    // obvious, and polling is suspended while backgrounded.
+    if (state == AppLifecycleState.resumed) _refreshIfChanged();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _poll?.cancel();
     _streaming?.dispose();
     _textController.dispose();
     _scrollController.dispose();
@@ -74,41 +97,97 @@ class _BotChatScreenState extends State<BotChatScreen> {
       _loading = true;
       _error = null;
     });
-    final dashboard = DashboardClient(
-      host: widget.connection.host,
-      port: widget.connection.dashboardPort,
-      pathPrefix: widget.connection.dashboardPrefix ?? '',
-      proxied: widget.connection.dashboardProxied,
-      useHttps: widget.connection.useHttps,
-      username: widget.connection.dashboardUsername,
-      password: widget.connection.dashboardPassword,
-    );
+    final sessionId = widget.bot.canonicalSessionId;
+    if (sessionId == null) {
+      setState(() => _loading = false);
+      return;
+    }
+    final dashboard = _dashboard ?? _newDashboard();
     try {
-      final gateway = await BotGateway.connect(dashboard);
-      final chat = await gateway.openCanonicalChat(widget.bot);
-      if (!mounted) {
-        await gateway.close();
-        dashboard.close();
-        return;
-      }
-      gateway.events.listen(_onEvent);
+      // Read-only: viewing a bot must not attach its session, or a turn the
+      // user is running on the desktop would have its events diverted here.
+      final rows = await dashboard.getBotSessionMessages(
+        sessionId,
+        widget.bot.name,
+      );
+      final meta = await dashboard.getBotSessionMeta(
+        sessionId,
+        widget.bot.name,
+      );
+      if (!mounted) return;
       setState(() {
         _dashboard = dashboard;
-        _gateway = gateway;
-        _sessionId = chat?.sessionId;
+        _sessionId = sessionId;
+        _knownMessageCount = (meta['message_count'] as num?)?.toInt();
         _messages
           ..clear()
-          ..addAll(chat?.messages ?? const []);
+          ..addAll(
+            rows
+                .whereType<Map<String, dynamic>>()
+                .map(BotMessage.fromRest)
+                .where((m) => m.text.trim().isNotEmpty),
+          );
         _loading = false;
       });
       _scrollToBottom();
+      _startPolling();
     } catch (e) {
-      dashboard.close();
       if (!mounted) return;
       setState(() {
         _error = describeBotFailure(e);
         _loading = false;
       });
+    }
+  }
+
+  DashboardClient _newDashboard() => DashboardClient(
+    host: widget.connection.host,
+    port: widget.connection.dashboardPort,
+    pathPrefix: widget.connection.dashboardPrefix ?? '',
+    proxied: widget.connection.dashboardProxied,
+    useHttps: widget.connection.useHttps,
+    username: widget.connection.dashboardUsername,
+    password: widget.connection.dashboardPassword,
+  );
+
+  void _startPolling() {
+    _poll?.cancel();
+    _poll = Timer.periodic(_pollInterval, (_) => _refreshIfChanged());
+  }
+
+  /// Reloads the transcript when the host says it grew. Skipped while our own
+  /// turn is streaming — those tokens are already arriving live, and swapping
+  /// the list underneath them would drop the partial reply.
+  Future<void> _refreshIfChanged() async {
+    final dashboard = _dashboard;
+    final sessionId = _sessionId;
+    if (dashboard == null || sessionId == null || _sending || _loading) return;
+    try {
+      final meta = await dashboard.getBotSessionMeta(
+        sessionId,
+        widget.bot.name,
+      );
+      final count = (meta['message_count'] as num?)?.toInt();
+      if (count == null || count == _knownMessageCount) return;
+      final rows = await dashboard.getBotSessionMessages(
+        sessionId,
+        widget.bot.name,
+      );
+      if (!mounted) return;
+      setState(() {
+        _knownMessageCount = count;
+        _messages
+          ..clear()
+          ..addAll(
+            rows
+                .whereType<Map<String, dynamic>>()
+                .map(BotMessage.fromRest)
+                .where((m) => m.text.trim().isNotEmpty),
+          );
+      });
+      _scrollToBottom();
+    } catch (_) {
+      // A failed poll is not worth interrupting a readable transcript for.
     }
   }
 
@@ -146,15 +225,34 @@ class _BotChatScreenState extends State<BotChatScreen> {
     });
     buffer.dispose();
     _scrollToBottom();
+    // The host has now persisted the turn, including any tool rows the
+    // stream did not carry; take that as the record.
+    _refreshIfChanged();
+  }
+
+  /// Connects and opens the session, the first time the user sends.
+  Future<BotGateway> _ensureAttached(String sessionId) async {
+    final existing = _gateway;
+    if (existing != null) return existing;
+    final dashboard = _dashboard ?? _newDashboard();
+    final gateway = await BotGateway.connect(dashboard);
+    gateway.events.listen(_onEvent);
+    await gateway.attach(sessionId, widget.bot.name);
+    if (!mounted) {
+      await gateway.close();
+      throw StateError('screen closed');
+    }
+    setState(() {
+      _dashboard = dashboard;
+      _gateway = gateway;
+    });
+    return gateway;
   }
 
   Future<void> _send() async {
     final text = _textController.text.trim();
-    final gateway = _gateway;
     final sessionId = _sessionId;
-    if (text.isEmpty || gateway == null || sessionId == null || _sending) {
-      return;
-    }
+    if (text.isEmpty || sessionId == null || _sending) return;
     _textController.clear();
     final buffer = StreamingBuffer();
     setState(() {
@@ -164,6 +262,7 @@ class _BotChatScreenState extends State<BotChatScreen> {
     });
     _scrollToBottom();
     try {
+      final gateway = await _ensureAttached(sessionId);
       await gateway.submit(sessionId, text);
     } catch (e) {
       if (!mounted) return;
@@ -173,7 +272,7 @@ class _BotChatScreenState extends State<BotChatScreen> {
         _messages.removeLast();
       });
       buffer.dispose();
-      showAppSnackBar(context, 'Send failed: $e', isError: true);
+      showAppSnackBar(context, describeBotFailure(e), isError: true);
     }
   }
 

@@ -243,4 +243,28 @@ void main() {
       expect(bot.canonicalSessionId, 'PINNED');
     });
   });
+
+  group('BotMessage.fromRest', () {
+    test('flattens the stored content shape the dashboard returns', () {
+      final msg = BotMessage.fromRest({
+        'role': 'assistant',
+        'content': [
+          {'type': 'text', 'text': 'hello'},
+        ],
+        'timestamp': 1787241666.4,
+      });
+
+      expect(msg.role, 'assistant');
+      expect(msg.text, 'hello');
+      expect(msg.timestamp, 1787241666.4);
+    });
+
+    test('plain string content passes through', () {
+      expect(BotMessage.fromRest({'role': 'user', 'content': 'hi'}).text, 'hi');
+    });
+
+    test('a missing role reads as the assistant speaking', () {
+      expect(BotMessage.fromRest({'content': 'x'}).role, 'assistant');
+    });
+  });
 }

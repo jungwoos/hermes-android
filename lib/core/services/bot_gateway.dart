@@ -16,6 +16,7 @@ import 'dart:async';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../utils/message_content.dart';
 import 'connection_manager.dart';
 import 'rpc_client.dart';
 
@@ -98,6 +99,14 @@ class BotMessage {
   static BotMessage fromRpc(Map<String, dynamic> row) => BotMessage(
     role: (row['role'] as String?) ?? 'assistant',
     text: (row['text'] as String?) ?? '',
+    timestamp: (row['timestamp'] as num?)?.toDouble(),
+  );
+
+  /// The dashboard's read-only transcript rows, whose `content` is the raw
+  /// stored shape — multimodal parts and tool-result wrappers included.
+  static BotMessage fromRest(Map<String, dynamic> row) => BotMessage(
+    role: (row['role'] as String?) ?? 'assistant',
+    text: stripToolResultText(messageContentToText(row['content'])),
     timestamp: (row['timestamp'] as num?)?.toDouble(),
   );
 }
@@ -198,6 +207,22 @@ class BotGateway {
           : const [],
     );
   }
+
+  /// Opens [sessionId] in the gateway process so a turn can be submitted
+  /// against it.
+  ///
+  /// Deliberately separate from reading: attaching rebinds the session's
+  /// event transport to this client, so it waits until the user actually
+  /// sends rather than happening merely because a chat was opened.
+  Future<void> attach(String sessionId, String profile) => _rpc.call(
+    'session.resume',
+    {
+      'session_id': sessionId,
+      'profile': profile,
+      // The transcript is already on screen, read over REST.
+      'omit_messages': true,
+    },
+  );
 
   /// Sends a turn. The reply arrives on [events], not in the response.
   Future<void> submit(String sessionId, String text) =>

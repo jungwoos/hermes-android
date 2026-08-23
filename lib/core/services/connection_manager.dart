@@ -772,6 +772,35 @@ class DashboardClient {
     return list.whereType<Map<String, dynamic>>().toList();
   }
 
+  /// A bot session's size and last activity, read straight from the owning
+  /// profile's database.
+  ///
+  /// Read-only and cheap, and — unlike `session.resume` — it does not attach
+  /// the session in the gateway. Attaching rebinds the session's event
+  /// transport, which would divert a turn the user is running on the desktop
+  /// to this client mid-stream.
+  Future<Map<String, dynamic>> getBotSessionMeta(
+    String sessionId,
+    String profile,
+  ) async {
+    final res = await apiGet('sessions/$sessionId?profile=$profile');
+    final session = res['session'];
+    return session is Map<String, dynamic> ? session : res;
+  }
+
+  /// A bot session's transcript, newest page first by default.
+  Future<List<dynamic>> getBotSessionMessages(
+    String sessionId,
+    String profile, {
+    int limit = 400,
+  }) async {
+    final res = await apiGet(
+      'sessions/$sessionId/messages?profile=$profile&limit=$limit&order=latest',
+    );
+    final rows = res['messages'];
+    return rows is List ? rows : const [];
+  }
+
   /// Mints a single-use ticket for the gateway WebSocket.
   ///
   /// A gated dashboard rejects the legacy `?token=` credential on an upgrade
