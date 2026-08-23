@@ -8,6 +8,7 @@ import '../widgets/brand_hero.dart';
 import '../widgets/glass.dart';
 import '../widgets/plasma_orb.dart';
 import '../widgets/status_view.dart';
+import 'bots_screen.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
 import 'memory_screen.dart';
@@ -40,7 +41,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
   Session? _selectedSession;
 
   /// Nav destination shown in the detail pane instead of the chat
-  /// ('memory' | 'cron' | 'skills' | 'settings'), or null for the chat.
+  /// ('bots' | 'memory' | 'cron' | 'skills' | 'settings'), or null for
+  /// the chat.
   String? _selectedNavKey;
 
   /// Wide screens use the split layout; narrow screens fall back to the
@@ -223,6 +225,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
   Widget _navScreen(String key, {required bool embedded}) {
     switch (key) {
+      case 'bots':
+        return BotsScreen(connection: widget.connection, embedded: embedded);
       case 'memory':
         return MemoryScreen(connection: widget.connection, embedded: embedded);
       case 'cron':
@@ -346,6 +350,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
 
     return [
+      tile('bots', Icons.smart_toy_outlined, 'Bots'),
       tile('memory', Icons.memory, 'Memory'),
       tile('cron', Icons.schedule, 'Cron Jobs'),
       tile('skills', Icons.auto_awesome, 'Skills'),

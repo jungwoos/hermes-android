@@ -13,6 +13,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../services/connection_manager.dart';
 import '../theme.dart';
+import '../utils/agent_notice.dart';
 import '../utils/message_content.dart';
 import '../utils/responsive.dart';
 import '../utils/streaming_buffer.dart';
@@ -905,6 +906,13 @@ class _ChatScreenState extends State<ChatScreen> {
             stripToolResultText(messageContentToText(msg['content']));
         final isUser = role == 'user';
 
+        // Bot Mode: deliveries from other agents and background-process
+        // notifications ride the user role without a human typing them.
+        if (isUser) {
+          final notice = parseAgentNotice(content);
+          if (notice != null) return _AgentNoticeRow(notice: notice);
+        }
+
         return _MessageBubble(
           content: content,
           isUser: isUser,
@@ -1155,6 +1163,92 @@ class _ToolProgressCard extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Bot Mode: a delivery from another agent, or a background-process
+/// notification. Both arrive on the user role but are not the human speaking,
+/// so they render as a centered timeline notice with the text one tap away
+/// rather than as a user bubble.
+class _AgentNoticeRow extends StatefulWidget {
+  const _AgentNoticeRow({required this.notice});
+
+  final AgentNotice notice;
+
+  @override
+  State<_AgentNoticeRow> createState() => _AgentNoticeRowState();
+}
+
+class _AgentNoticeRowState extends State<_AgentNoticeRow> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final notice = widget.notice;
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final isAgent = notice.kind == AgentNoticeKind.agentMessage;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isAgent)
+                const Text('🤖', style: TextStyle(fontSize: 13))
+              else
+                Icon(Icons.terminal, size: 14, color: muted),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  notice.headline,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: muted,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (notice.body.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            GestureDetector(
+              onTap: () => setState(() => _expanded = !_expanded),
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Text(
+                  _expanded ? 'hide message' : 'show message',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                  ),
+                ),
+              ),
+            ),
+            if (_expanded)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: GlassCard(
+                  radius: HermesRadius.tile,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  child: Text(
+                    notice.body,
+                    style: theme.textTheme.bodySmall?.copyWith(height: 1.45),
+                  ),
+                ),
+              ),
+          ],
+        ],
       ),
     );
   }

@@ -494,6 +494,78 @@ void main() {
       expect(client.getModelInfo(), throwsA(isA<Exception>()));
       client.close();
     });
+    test('getProfiles unwraps the roster and drops non-object rows', () async {
+      final client = DashboardClient(
+        host: 'hermes.local',
+        port: 9119,
+        proxied: true,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/profiles');
+          return http.Response(
+            '{"profiles":[{"name":"default","model":"grok-4.5"},'
+            '"junk",{"name":"lucy","skill_count":3}]}',
+            200,
+          );
+        }),
+      );
+
+      final bots = await client.getProfiles();
+      expect(bots.map((b) => b['name']), ['default', 'lucy']);
+      expect(bots.first['model'], 'grok-4.5');
+      client.close();
+    });
+
+    test('getProfiles tolerates a roster payload without the key', () async {
+      final client = DashboardClient(
+        host: 'hermes.local',
+        port: 9119,
+        proxied: true,
+        httpClient: MockClient(
+          (request) async => http.Response('{"ok":true}', 200),
+        ),
+      );
+
+      expect(await client.getProfiles(), isEmpty);
+      client.close();
+    });
+
+    test('active and current profiles are reported separately', () async {
+      final client = DashboardClient(
+        host: 'hermes.local',
+        port: 9119,
+        proxied: true,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/profiles/active');
+          return http.Response('{"active":"lucy","current":"default"}', 200);
+        }),
+      );
+
+      final active = await client.getActiveProfile();
+      // They differ until the gateway restarts; the screen leans on that.
+      expect(active['active'], 'lucy');
+      expect(active['current'], 'default');
+      client.close();
+    });
+
+    test('setActiveProfile posts the name and returns the new active', () async {
+      String? sentBody;
+      final client = DashboardClient(
+        host: 'hermes.local',
+        port: 9119,
+        proxied: true,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/profiles/active');
+          expect(request.method, 'POST');
+          sentBody = request.body;
+          return http.Response('{"ok":true,"active":"lucy"}', 200);
+        }),
+      );
+
+      final res = await client.setActiveProfile('lucy');
+      expect(sentBody, '{"name":"lucy"}');
+      expect(res['active'], 'lucy');
+      client.close();
+    });
   });
 
   group('ConnectionManager', () {

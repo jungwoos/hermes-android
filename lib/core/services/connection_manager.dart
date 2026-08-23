@@ -758,6 +758,26 @@ class DashboardClient {
     return data.whereType<Map<String, dynamic>>().toList();
   }
 
+  // ---- Bot Mode: agent profiles ----
+
+  /// Every agent profile ("bot") the host knows about.
+  Future<List<Map<String, dynamic>>> getProfiles() async {
+    final data = await apiGet('profiles');
+    final list = data['profiles'];
+    if (list is! List) return [];
+    return list.whereType<Map<String, dynamic>>().toList();
+  }
+
+  /// `active` is the sticky profile new CLI runs and gateways pick up;
+  /// `current` is the profile the running dashboard is already scoped to.
+  /// They differ until the gateway is restarted.
+  Future<Map<String, dynamic>> getActiveProfile() => apiGet('profiles/active');
+
+  /// Sets the sticky active profile. This does not retarget an
+  /// already-running gateway — the caller must say so in the UI.
+  Future<Map<String, dynamic>> setActiveProfile(String name) =>
+      apiPost('profiles/active', body: {'name': name});
+
   Future<Map<String, dynamic>> setModel(
     String scope,
     String provider,
