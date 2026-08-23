@@ -159,6 +159,48 @@ Future<BotTarget?> _promptBotTarget(
   });
 }
 
+/// A fresh session to open against a bot. Chats are created client-side and
+/// only exist on the host once the first message is sent, exactly as the
+/// session list's New Chat does.
+Session newBotSession(String bot) {
+  return Session(
+    id: GatewayChatClient.generateSessionId(),
+    title: bot,
+    model: 'hermes-agent',
+    source: 'mobile',
+    messageCount: 0,
+    isActive: true,
+    preview: '',
+    startedAt: DateTime.now().millisecondsSinceEpoch.toDouble() / 1000,
+  );
+}
+
+/// The bot's most recent conversation, or null when it has none.
+///
+/// Asked of the bot's own gateway rather than the dashboard's cross-profile
+/// aggregate: it answers in the shape the app already parses, and it is
+/// authoritative for the profile we are about to chat with.
+///
+/// A failure here (unreachable bot, wrong key) resolves to null so the caller
+/// opens a fresh chat; the chat screen then surfaces the real error when it
+/// tries to load messages, instead of this returning a confusing one.
+Future<Session?> latestBotSession(SavedConnection botConnection) async {
+  final client = ApiClient(
+    baseUrl: botConnection.baseUrl,
+    apiKey: botConnection.apiKey,
+    pathPrefix: botConnection.gatewayPrefix ?? '',
+  );
+  try {
+    final sessions = await client.getSessions();
+    if (sessions.isEmpty) return null;
+    return sessions.reduce((a, b) => b.startedAt > a.startedAt ? b : a);
+  } catch (_) {
+    return null;
+  } finally {
+    client.close();
+  }
+}
+
 /// Orders the roster so the most recently used bot is first.
 ///
 /// Bots that have never been talked to sink to the bottom and stay in name
@@ -207,8 +249,9 @@ class BotRosterView extends StatefulWidget {
 
   final SavedConnection connection;
 
-  /// Called with the bot's name once the user picks one.
-  final ValueChanged<String> onOpenChat;
+  /// Called with the bot's name once the user picks one. [fresh] skips
+  /// resuming the bot's last conversation and starts an empty one.
+  final void Function(String bot, {required bool fresh}) onOpenChat;
 
   /// Denser layout for the session panel.
   final bool compact;
@@ -376,7 +419,7 @@ class BotRosterViewState extends State<BotRosterView> {
       padding: widget.compact
           ? const EdgeInsets.all(12)
           : const EdgeInsets.all(16),
-      onTap: busy ? null : () => widget.onOpenChat(name),
+      onTap: busy ? null : () => widget.onOpenChat(name, fresh: false),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -452,10 +495,15 @@ class BotRosterViewState extends State<BotRosterView> {
                   ),
                   padding: EdgeInsets.zero,
                   onSelected: (action) {
+                    if (action == 'new') widget.onOpenChat(name, fresh: true);
                     if (action == 'active') _setActive(name);
                     if (action == 'forget') _forgetCredentials(name);
                   },
                   itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'new',
+                      child: Text('New chat'),
+                    ),
                     if (!isActive)
                       const PopupMenuItem(
                         value: 'active',

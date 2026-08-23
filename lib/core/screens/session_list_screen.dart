@@ -215,7 +215,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
   /// Opens a chat with [bot] in the detail pane, asking for that bot's
   /// credentials the first time it is used.
-  Future<void> _openBotChat(String bot) async {
+  Future<void> _openBotChat(String bot, {required bool fresh}) async {
     final connection = await resolveBotConnection(
       context: context,
       base: widget.connection,
@@ -224,9 +224,13 @@ class _SessionListScreenState extends State<SessionListScreen> {
     );
     if (connection == null || !mounted) return;
 
-    final session = newBotSession(bot);
+    // Reopen the bot's last conversation so its history is there, unless the
+    // user explicitly asked for a new one.
+    final session =
+        (fresh ? null : await latestBotSession(connection)) ??
+        newBotSession(bot);
+    if (!mounted) return;
     if (!_splitLayoutActive) {
-      if (!mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(

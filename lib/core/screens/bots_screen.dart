@@ -29,7 +29,7 @@ class BotsScreen extends StatefulWidget {
 class _BotsScreenState extends State<BotsScreen> {
   final _roster = GlobalKey<BotRosterViewState>();
 
-  Future<void> _openBotChat(String bot) async {
+  Future<void> _openBotChat(String bot, {required bool fresh}) async {
     final connection = await resolveBotConnection(
       context: context,
       base: widget.connection,
@@ -38,13 +38,17 @@ class _BotsScreenState extends State<BotsScreen> {
     );
     if (connection == null || !mounted) return;
 
+    // Reopen the bot's last conversation so its history is there, unless the
+    // user explicitly asked for a new one.
+    final session =
+        (fresh ? null : await latestBotSession(connection)) ??
+        newBotSession(bot);
+    if (!mounted) return;
+
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ChatScreen(
-          connection: connection,
-          session: newBotSession(bot),
-        ),
+        builder: (_) => ChatScreen(connection: connection, session: session),
       ),
     );
   }
@@ -71,20 +75,4 @@ class _BotsScreenState extends State<BotsScreen> {
       ),
     );
   }
-}
-
-/// A fresh session to open against a bot. Chats are created client-side and
-/// only exist on the host once the first message is sent, exactly as the
-/// session list's New Chat does.
-Session newBotSession(String bot) {
-  return Session(
-    id: GatewayChatClient.generateSessionId(),
-    title: bot,
-    model: 'hermes-agent',
-    source: 'mobile',
-    messageCount: 0,
-    isActive: true,
-    preview: '',
-    startedAt: DateTime.now().millisecondsSinceEpoch.toDouble() / 1000,
-  );
 }

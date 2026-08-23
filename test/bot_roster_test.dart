@@ -1,4 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:hermes_android/core/services/connection_manager.dart';
 import 'package:hermes_android/core/widgets/bot_roster.dart';
 
 List<Map<String, dynamic>> _bots(List<String> names) =>
@@ -65,6 +68,55 @@ void main() {
       final stamp = at.millisecondsSinceEpoch / 1000;
 
       expect(formatBotLastActive(stamp, now: now), '21/8');
+    });
+  });
+
+  group('latestBotSession', () {
+    SavedConnection botConn() => SavedConnection.forBot(
+      SavedConnection(
+        id: 'c1',
+        label: 'Home',
+        host: 'hermes.local',
+        port: 8642,
+        apiKey: 'DEFAULT',
+      ),
+      'coder',
+      const BotTarget(port: 8643, apiKey: 'CODER'),
+    );
+
+    test('newBotSession makes an empty client-side chat named for the bot', () {
+      final session = newBotSession('coder');
+
+      expect(session.title, 'coder');
+      expect(session.messageCount, 0);
+      expect(session.id, isNotEmpty);
+    });
+
+    test('picks the newest conversation regardless of response order', () async {
+      final conn = botConn();
+      final client = ApiClient(
+        baseUrl: conn.baseUrl,
+        apiKey: conn.apiKey,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/sessions');
+          expect(request.headers['Authorization'], 'Bearer CODER');
+          return http.Response(
+            '{"data":['
+            '{"id":"old","title":"Old","started_at":100},'
+            '{"id":"newest","title":"Newest","started_at":900},'
+            '{"id":"mid","title":"Mid","started_at":500}'
+            ']}',
+            200,
+          );
+        }),
+      );
+
+      final sessions = await client.getSessions();
+      final newest = sessions.reduce(
+        (a, b) => b.startedAt > a.startedAt ? b : a,
+      );
+      expect(newest.id, 'newest');
+      client.close();
     });
   });
 }
