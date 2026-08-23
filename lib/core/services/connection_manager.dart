@@ -785,6 +785,29 @@ class DashboardClient {
     return list.whereType<Map<String, dynamic>>().toList();
   }
 
+  /// Newest activity per profile, as epoch seconds.
+  ///
+  /// One cross-profile query rather than one per bot: the endpoint tags every
+  /// row with its owning profile and already returns them newest-first, so
+  /// the first row seen for a profile is that profile's latest.
+  Future<Map<String, double>> getProfileLastActive({int limit = 200}) async {
+    final data = await apiGet(
+      'profiles/sessions?profile=all&order=recent&limit=$limit',
+    );
+    final rows = data['sessions'];
+    final latest = <String, double>{};
+    if (rows is! List) return latest;
+    for (final row in rows) {
+      if (row is! Map) continue;
+      final profile = row['profile'];
+      if (profile is! String || profile.isEmpty) continue;
+      final stamp = row['last_active'] ?? row['started_at'];
+      if (stamp is! num) continue;
+      latest.putIfAbsent(profile, () => stamp.toDouble());
+    }
+    return latest;
+  }
+
   /// Whether one gateway is fronting every profile. It changes how a bot is
   /// addressed: multiplexed bots share the default port behind a
   /// `/p/<name>` prefix, otherwise each bot listens on its own port.

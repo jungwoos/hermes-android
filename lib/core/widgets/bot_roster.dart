@@ -159,6 +159,42 @@ Future<BotTarget?> _promptBotTarget(
   });
 }
 
+/// Orders the roster so the most recently used bot is first.
+///
+/// Bots that have never been talked to sink to the bottom and stay in name
+/// order there, so an idle roster is still predictable rather than arbitrary.
+List<Map<String, dynamic>> sortBotsByRecency(
+  List<Map<String, dynamic>> bots,
+  Map<String, double> lastActive,
+) {
+  final sorted = [...bots];
+  sorted.sort((a, b) {
+    final aName = (a['name'] as String?) ?? '';
+    final bName = (b['name'] as String?) ?? '';
+    final aAt = lastActive[aName];
+    final bAt = lastActive[bName];
+    if (aAt == null && bAt == null) return aName.compareTo(bName);
+    if (aAt == null) return 1;
+    if (bAt == null) return -1;
+    final byRecency = bAt.compareTo(aAt);
+    return byRecency != 0 ? byRecency : aName.compareTo(bName);
+  });
+  return sorted;
+}
+
+/// Compact "when", matching the session list: clock time today, date before.
+String formatBotLastActive(double epochSeconds, {DateTime? now}) {
+  final at = DateTime.fromMillisecondsSinceEpoch(
+    (epochSeconds * 1000).toInt(),
+  );
+  final today = now ?? DateTime.now();
+  if (at.year == today.year && at.month == today.month && at.day == today.day) {
+    return '${at.hour.toString().padLeft(2, '0')}:'
+        '${at.minute.toString().padLeft(2, '0')}';
+  }
+  return '${at.day}/${at.month}';
+}
+
 /// The roster itself: loads profiles, shows which is active, and hands the
 /// selected bot back to the caller.
 class BotRosterView extends StatefulWidget {
@@ -187,6 +223,7 @@ class BotRosterViewState extends State<BotRosterView> {
   String? _active;
   String? _current;
   bool _multiplex = false;
+  Map<String, double> _lastActive = const {};
   bool _loading = true;
   String? _error;
   String? _switching;
@@ -230,9 +267,16 @@ class BotRosterViewState extends State<BotRosterView> {
         active = await _client.getActiveProfile();
       } catch (_) {}
       final multiplex = await _client.isMultiplexEnabled();
+      // Recency is a nicety: a host that cannot aggregate sessions still
+      // renders the roster, just in the order the API returned it.
+      Map<String, double> lastActive = const {};
+      try {
+        lastActive = await _client.getProfileLastActive();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
-        _bots = bots;
+        _bots = sortBotsByRecency(bots, lastActive);
+        _lastActive = lastActive;
         _active = active['active'] as String?;
         _current = active['current'] as String?;
         _multiplex = multiplex;
@@ -321,7 +365,9 @@ class BotRosterViewState extends State<BotRosterView> {
     final isCurrent = name == _current;
     final busy = _switching == name;
 
+    final lastActive = _lastActive[name];
     final subtitle = [
+      if (lastActive != null) formatBotLastActive(lastActive),
       if (model.isNotEmpty) model,
       if (skillCount > 0) '$skillCount skills',
     ].join(' • ');

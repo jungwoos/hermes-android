@@ -547,6 +547,35 @@ void main() {
       client.close();
     });
 
+    test('last-active per profile takes the newest row for each', () async {
+      final client = DashboardClient(
+        host: 'hermes.local',
+        port: 9119,
+        proxied: true,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/profiles/sessions');
+          expect(request.url.queryParameters['profile'], 'all');
+          expect(request.url.queryParameters['order'], 'recent');
+          // Rows arrive newest-first, so the second "coder" row is older and
+          // must not overwrite the first.
+          return http.Response(
+            '{"sessions":['
+            '{"profile":"coder","last_active":300},'
+            '{"profile":"writer","last_active":250},'
+            '{"profile":"coder","last_active":100},'
+            '{"profile":"nostamp"},'
+            '"junk"'
+            ']}',
+            200,
+          );
+        }),
+      );
+
+      final latest = await client.getProfileLastActive();
+      expect(latest, {'coder': 300.0, 'writer': 250.0});
+      client.close();
+    });
+
     test('setActiveProfile posts the name and returns the new active', () async {
       String? sentBody;
       final client = DashboardClient(
