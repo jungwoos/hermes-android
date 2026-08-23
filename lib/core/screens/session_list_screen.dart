@@ -4,6 +4,7 @@ import '../services/connection_manager.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/aurora.dart';
+import '../widgets/bot_roster.dart';
 import '../widgets/brand_hero.dart';
 import '../widgets/glass.dart';
 import '../widgets/plasma_orb.dart';
@@ -44,6 +45,16 @@ class _SessionListScreenState extends State<SessionListScreen> {
   /// ('bots' | 'memory' | 'cron' | 'skills' | 'settings'), or null for
   /// the chat.
   String? _selectedNavKey;
+
+  /// Which list the side panel shows. Bots are a peer of sessions there,
+  /// not a nav destination, so switching between them keeps the detail pane.
+  bool _panelShowsBots = false;
+
+  /// Set while the detail pane is chatting with a bot rather than with the
+  /// profile this screen's connection points at. Bots have their own API
+  /// server and key, so the chat needs a different connection.
+  SavedConnection? _botConnection;
+  final _botRoster = GlobalKey<BotRosterViewState>();
 
   /// Wide screens use the split layout; narrow screens fall back to the
   /// modal drawer + pushed routes.
@@ -189,6 +200,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
       setState(() {
         _selectedSession = session;
         _selectedNavKey = null;
+        _botConnection = null;
       });
       return;
     }
@@ -199,6 +211,35 @@ class _SessionListScreenState extends State<SessionListScreen> {
             ChatScreen(connection: widget.connection, session: session),
       ),
     );
+  }
+
+  /// Opens a chat with [bot] in the detail pane, asking for that bot's
+  /// credentials the first time it is used.
+  Future<void> _openBotChat(String bot) async {
+    final connection = await resolveBotConnection(
+      context: context,
+      base: widget.connection,
+      bot: bot,
+      multiplex: _botRoster.currentState?.multiplex ?? false,
+    );
+    if (connection == null || !mounted) return;
+
+    final session = newBotSession(bot);
+    if (!_splitLayoutActive) {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(connection: connection, session: session),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _botConnection = connection;
+      _selectedSession = session;
+      _selectedNavKey = null;
+    });
   }
 
   String _formatTime(double ts) {
@@ -423,14 +464,48 @@ class _SessionListScreenState extends State<SessionListScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              child: GradientPillButton(
-                label: 'New Chat',
-                icon: Icons.add,
-                expand: true,
-                onPressed: _createNewSession,
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(
+                    value: false,
+                    label: Text('Sessions'),
+                    icon: Icon(Icons.forum_outlined, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text('Bots'),
+                    icon: Icon(Icons.smart_toy_outlined, size: 16),
+                  ),
+                ],
+                selected: {_panelShowsBots},
+                showSelectedIcon: false,
+                onSelectionChanged: (s) =>
+                    setState(() => _panelShowsBots = s.first),
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                ),
               ),
             ),
-            Expanded(child: _buildBody(inPanel: true)),
+            if (!_panelShowsBots)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: GradientPillButton(
+                  label: 'New Chat',
+                  icon: Icons.add,
+                  expand: true,
+                  onPressed: _createNewSession,
+                ),
+              ),
+            Expanded(
+              child: _panelShowsBots
+                  ? BotRosterView(
+                      key: _botRoster,
+                      connection: widget.connection,
+                      compact: true,
+                      onOpenChat: _openBotChat,
+                    )
+                  : _buildBody(inPanel: true),
+            ),
             const Divider(height: 1),
             const SizedBox(height: 4),
             ..._navTiles(fromDrawer: false),
@@ -468,7 +543,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
     // Keyed by session id so switching sessions rebuilds the chat state.
     return ChatScreen(
       key: ValueKey(selected.id),
-      connection: widget.connection,
+      connection: _botConnection ?? widget.connection,
       session: selected,
       embedded: true,
     );
