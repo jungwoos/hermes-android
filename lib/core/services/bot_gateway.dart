@@ -93,6 +93,29 @@ class BotConversation {
   final List<BotMessage> messages;
 }
 
+/// Turns a gateway failure into something a reader can act on.
+///
+/// The raw text is kept as the detail — it is the only thing that identifies
+/// an unfamiliar failure — but the common ones get a first line that says what
+/// broke and whether the rest of the app is affected.
+String describeBotFailure(Object error) {
+  final raw = error.toString();
+  if (raw.contains('database disk image is malformed')) {
+    return "This bot's conversation store is corrupted, so the host cannot "
+        'read its history. Other bots are unaffected. Recovering that '
+        "profile's state.db restores it.\n\n$raw";
+  }
+  if (raw.contains('session not found')) {
+    return 'The host no longer has this conversation. Open the bot on the '
+        'desktop once to re-establish it.\n\n$raw';
+  }
+  if (raw.contains('401') || raw.contains('Unauthorized')) {
+    return 'The dashboard rejected the connection. Check the dashboard '
+        "username and password on this connection.\n\n$raw";
+  }
+  return raw;
+}
+
 /// Opens the gateway socket for a dashboard connection.
 class BotGateway {
   BotGateway(this._rpc);

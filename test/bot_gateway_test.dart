@@ -167,4 +167,29 @@ void main() {
       throwsA(isA<RpcError>().having((e) => e.code, 'code', 4001)),
     );
   });
+
+  group('describeBotFailure', () {
+    test('names a corrupt profile store and scopes the blast radius', () {
+      final text = describeBotFailure(
+        RpcError('session.resume', 'handler error: database disk image is malformed'),
+      );
+
+      expect(text, contains('corrupted'));
+      expect(text, contains('Other bots are unaffected'));
+      // The raw text stays: it is what identifies the failure in a report.
+      expect(text, contains('database disk image is malformed'));
+    });
+
+    test('points a missing conversation back at the desktop', () {
+      final text = describeBotFailure(
+        RpcError('session.resume', 'session not found', code: 4001),
+      );
+
+      expect(text, contains('desktop'));
+    });
+
+    test('passes an unfamiliar failure through unchanged', () {
+      expect(describeBotFailure(StateError('kaboom')), 'Bad state: kaboom');
+    });
+  });
 }

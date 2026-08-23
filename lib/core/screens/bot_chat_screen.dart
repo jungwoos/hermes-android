@@ -106,7 +106,7 @@ class _BotChatScreenState extends State<BotChatScreen> {
       dashboard.close();
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = describeBotFailure(e);
         _loading = false;
       });
     }
