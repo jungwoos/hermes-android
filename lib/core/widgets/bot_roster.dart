@@ -175,30 +175,49 @@ Session newBotSession(String bot) {
   );
 }
 
-/// The bot's most recent conversation, or null when it has none.
+/// The title the desktop uses as a bot's forever-chat identity.
+const String kBotChatTitle = 'Bot Chat';
+
+/// The bot's canonical conversation — the same row the desktop opens.
+///
+/// Desktop pins a bot to one forever-chat identified by
+/// (profile, session titled exactly "Bot Chat"), deliberately by name rather
+/// than by a stored session id. Matching on that title is what makes both
+/// clients land on one conversation instead of each keeping its own.
 ///
 /// Asked of the bot's own gateway rather than the dashboard's cross-profile
-/// aggregate: it answers in the shape the app already parses, and it is
-/// authoritative for the profile we are about to chat with.
+/// aggregate: it answers in the shape the app already parses and is
+/// authoritative for the profile being opened. The window is widened because
+/// cron runs can push the bot chat well down a profile's recent list.
 ///
-/// A failure here (unreachable bot, wrong key) resolves to null so the caller
-/// opens a fresh chat; the chat screen then surfaces the real error when it
-/// tries to load messages, instead of this returning a confusing one.
-Future<Session?> latestBotSession(SavedConnection botConnection) async {
+/// Falls back to the profile's newest session when there is no canonical row
+/// yet — a bot the desktop has never opened has none. A failure resolves to
+/// null so the caller opens a fresh chat and the chat screen surfaces the
+/// real error when it loads messages.
+Future<Session?> canonicalBotSession(SavedConnection botConnection) async {
   final client = ApiClient(
     baseUrl: botConnection.baseUrl,
     apiKey: botConnection.apiKey,
     pathPrefix: botConnection.gatewayPrefix ?? '',
   );
   try {
-    final sessions = await client.getSessions();
-    if (sessions.isEmpty) return null;
-    return sessions.reduce((a, b) => b.startedAt > a.startedAt ? b : a);
+    final sessions = await client.getSessions(limit: 200);
+    return pickCanonicalSession(sessions);
   } catch (_) {
     return null;
   } finally {
     client.close();
   }
+}
+
+/// Picks the bot's forever-chat out of [sessions], or the newest session when
+/// the bot has none yet.
+Session? pickCanonicalSession(List<Session> sessions) {
+  if (sessions.isEmpty) return null;
+  for (final session in sessions) {
+    if (session.title == kBotChatTitle) return session;
+  }
+  return sessions.reduce((a, b) => b.startedAt > a.startedAt ? b : a);
 }
 
 /// Orders the roster so the most recently used bot is first.

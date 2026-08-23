@@ -71,7 +71,7 @@ void main() {
     });
   });
 
-  group('latestBotSession', () {
+  group('canonicalBotSession', () {
     SavedConnection botConn() => SavedConnection.forBot(
       SavedConnection(
         id: 'c1',
@@ -92,30 +92,68 @@ void main() {
       expect(session.id, isNotEmpty);
     });
 
-    test('picks the newest conversation regardless of response order', () async {
+    Session sess(String id, String title, double startedAt) => Session(
+      id: id,
+      title: title,
+      model: 'm',
+      source: 'tui',
+      messageCount: 1,
+      isActive: true,
+      preview: '',
+      startedAt: startedAt,
+    );
+
+    test('prefers the canonical Bot Chat over newer sessions', () {
+      // The desktop identifies a bot's forever-chat by this exact title, so
+      // matching it is what links the two clients to one conversation.
+      final picked = pickCanonicalSession([
+        sess('cron-1', 'Morning report', 900),
+        sess('bot', kBotChatTitle, 400),
+        sess('cron-2', 'Nightly sweep', 800),
+      ]);
+
+      expect(picked!.id, 'bot');
+    });
+
+    test('falls back to the newest session when there is no Bot Chat', () {
+      final picked = pickCanonicalSession([
+        sess('old', 'Old', 100),
+        sess('newest', 'Newest', 900),
+        sess('mid', 'Mid', 500),
+      ]);
+
+      expect(picked!.id, 'newest');
+    });
+
+    test('an empty profile has no session to resume', () {
+      expect(pickCanonicalSession([]), isNull);
+    });
+
+    test('only an exact title counts as the canonical chat', () {
+      final picked = pickCanonicalSession([
+        sess('near', 'Bot Chat archive', 900),
+        sess('newest', 'Something else', 950),
+      ]);
+
+      expect(picked!.id, 'newest');
+    });
+
+    test('the session window is widened when resolving a bot chat', () async {
       final conn = botConn();
+      var requestedLimit = '';
       final client = ApiClient(
         baseUrl: conn.baseUrl,
         apiKey: conn.apiKey,
         httpClient: MockClient((request) async {
-          expect(request.url.path, '/api/sessions');
           expect(request.headers['Authorization'], 'Bearer CODER');
-          return http.Response(
-            '{"data":['
-            '{"id":"old","title":"Old","started_at":100},'
-            '{"id":"newest","title":"Newest","started_at":900},'
-            '{"id":"mid","title":"Mid","started_at":500}'
-            ']}',
-            200,
-          );
+          requestedLimit = request.url.queryParameters['limit'] ?? '';
+          return http.Response('{"data":[]}', 200);
         }),
       );
 
-      final sessions = await client.getSessions();
-      final newest = sessions.reduce(
-        (a, b) => b.startedAt > a.startedAt ? b : a,
-      );
-      expect(newest.id, 'newest');
+      await client.getSessions(limit: 200);
+      // Cron runs can push a bot chat well past the server's default page.
+      expect(requestedLimit, '200');
       client.close();
     });
   });

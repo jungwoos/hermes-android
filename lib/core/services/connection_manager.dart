@@ -205,9 +205,13 @@ class ApiClient {
 
   // ── Session listing ──────────────────────────────────────────────────
 
-  Future<List<Session>> getSessions() async {
+  /// [limit] overrides the server's default page size. Resolving a bot's
+  /// canonical chat needs a wide enough window to see past newer cron runs.
+  Future<List<Session>> getSessions({int? limit}) async {
     final res = await _http.get(
-      Uri.parse('$baseUrl/api/sessions'),
+      Uri.parse(
+        '$baseUrl/api/sessions${limit == null ? '' : '?limit=$limit'}',
+      ),
       headers: _headers,
     );
     if (res.statusCode != 200) {

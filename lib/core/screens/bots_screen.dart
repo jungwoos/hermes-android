@@ -38,10 +38,11 @@ class _BotsScreenState extends State<BotsScreen> {
     );
     if (connection == null || !mounted) return;
 
-    // Reopen the bot's last conversation so its history is there, unless the
-    // user explicitly asked for a new one.
+    // Reopen the bot's canonical chat — the same row the desktop opens —
+    // so the two clients share one conversation instead of each keeping
+    // its own. Unless the user explicitly asked for a new one.
     final session =
-        (fresh ? null : await latestBotSession(connection)) ??
+        (fresh ? null : await canonicalBotSession(connection)) ??
         newBotSession(bot);
     if (!mounted) return;
 
