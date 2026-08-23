@@ -162,19 +162,28 @@ class HermesRpcClient {
 
 /// Builds the gateway socket URL for a dashboard base URL.
 ///
-/// The legacy `?token=` credential is the loopback / `--insecure` path, which
-/// is the same SPA session token the dashboard REST client already resolves.
-/// A gated dashboard wants a single-use `?ticket=` instead and will close the
-/// socket with 4401 here.
-Uri gatewaySocketUri(String dashboardBaseUrl, {String? token}) {
+/// A gated dashboard wants a single-use [ticket] — the legacy `?token=`
+/// credential is rejected outright on an upgrade once the gate is engaged.
+/// An open/loopback dashboard still accepts [token], which is the same SPA
+/// session token the REST client already resolves.
+Uri gatewaySocketUri(
+  String dashboardBaseUrl, {
+  String? ticket,
+  String? token,
+}) {
   final base = dashboardBaseUrl
       .replaceFirst('https://', 'wss://')
       .replaceFirst('http://', 'ws://');
   final trimmed = base.endsWith('/')
       ? base.substring(0, base.length - 1)
       : base;
-  final query = token == null || token.isEmpty
+  final credential = <String, String>{
+    if (ticket != null && ticket.isNotEmpty) 'ticket': ticket,
+    if ((ticket == null || ticket.isEmpty) && token != null && token.isNotEmpty)
+      'token': token,
+  };
+  final query = credential.isEmpty
       ? ''
-      : '?token=${Uri.encodeQueryComponent(token)}';
+      : '?${credential.entries.map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}').join('&')}';
   return Uri.parse('$trimmed/api/ws$query');
 }

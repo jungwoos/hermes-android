@@ -789,6 +789,21 @@ class DashboardClient {
     return list.whereType<Map<String, dynamic>>().toList();
   }
 
+  /// Mints a single-use ticket for the gateway WebSocket.
+  ///
+  /// A gated dashboard rejects the legacy `?token=` credential on an upgrade
+  /// and browsers cannot set Authorization on one, so `/api/ws` takes a
+  /// short-lived ticket instead. It is single-use with a ~30s TTL, so mint one
+  /// per connection rather than caching it.
+  Future<String> mintWsTicket() async {
+    final res = await apiPost('auth/ws-ticket');
+    final ticket = res['ticket'];
+    if (ticket is! String || ticket.isEmpty) {
+      throw Exception('Dashboard returned no WebSocket ticket');
+    }
+    return ticket;
+  }
+
   /// Newest activity per profile, as epoch seconds.
   ///
   /// One cross-profile query rather than one per bot: the endpoint tags every

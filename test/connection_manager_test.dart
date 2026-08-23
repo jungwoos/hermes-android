@@ -547,6 +547,36 @@ void main() {
       client.close();
     });
 
+    test('mints a single-use websocket ticket', () async {
+      final client = DashboardClient(
+        host: 'hermes.local',
+        port: 9119,
+        proxied: true,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/auth/ws-ticket');
+          expect(request.method, 'POST');
+          return http.Response('{"ticket":"T-123","ttl_seconds":30}', 200);
+        }),
+      );
+
+      expect(await client.mintWsTicket(), 'T-123');
+      client.close();
+    });
+
+    test('a ticket response without a ticket is an error, not an empty one', () async {
+      final client = DashboardClient(
+        host: 'hermes.local',
+        port: 9119,
+        proxied: true,
+        httpClient: MockClient(
+          (request) async => http.Response('{"ttl_seconds":30}', 200),
+        ),
+      );
+
+      await expectLater(client.mintWsTicket(), throwsA(isA<Exception>()));
+      client.close();
+    });
+
     test('last-active per profile takes the newest row for each', () async {
       final client = DashboardClient(
         host: 'hermes.local',

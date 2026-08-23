@@ -200,6 +200,17 @@ void main() {
       expect(uri.queryParameters['token'], 'TOK');
     });
 
+    test('prefers the ticket — a gated dashboard rejects the token', () {
+      final uri = gatewaySocketUri(
+        'http://hermes.local:9119',
+        ticket: 'T1',
+        token: 'TOK',
+      );
+
+      expect(uri.queryParameters['ticket'], 'T1');
+      expect(uri.queryParameters.containsKey('token'), isFalse);
+    });
+
     test('uses wss for an https dashboard', () {
       expect(
         gatewaySocketUri('https://hermes.example', token: 't').scheme,
