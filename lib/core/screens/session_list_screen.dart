@@ -9,6 +9,8 @@ import '../widgets/brand_hero.dart';
 import '../widgets/glass.dart';
 import '../widgets/plasma_orb.dart';
 import '../widgets/status_view.dart';
+import '../services/bot_gateway.dart';
+import 'bot_chat_screen.dart';
 import 'bots_screen.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
@@ -50,10 +52,9 @@ class _SessionListScreenState extends State<SessionListScreen> {
   /// not a nav destination, so switching between them keeps the detail pane.
   bool _panelShowsBots = false;
 
-  /// Set while the detail pane is chatting with a bot rather than with the
-  /// profile this screen's connection points at. Bots have their own API
-  /// server and key, so the chat needs a different connection.
-  SavedConnection? _botConnection;
+  /// Set while the detail pane is showing a bot's chat rather than a session
+  /// of this screen's own profile.
+  BotProfile? _selectedBot;
   final _botRoster = GlobalKey<BotRosterViewState>();
 
   /// Wide screens use the split layout; narrow screens fall back to the
@@ -200,7 +201,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
       setState(() {
         _selectedSession = session;
         _selectedNavKey = null;
-        _botConnection = null;
+        _selectedBot = null;
       });
       return;
     }
@@ -213,36 +214,22 @@ class _SessionListScreenState extends State<SessionListScreen> {
     );
   }
 
-  /// Opens a chat with [bot] in the detail pane, asking for that bot's
-  /// credentials the first time it is used.
-  Future<void> _openBotChat(String bot, {required bool fresh}) async {
-    final connection = await resolveBotConnection(
-      context: context,
-      base: widget.connection,
-      bot: bot,
-      multiplex: _botRoster.currentState?.multiplex ?? false,
-    );
-    if (connection == null || !mounted) return;
-
-    // Reopen the bot's canonical chat — the same row the desktop opens —
-    // so the two clients share one conversation instead of each keeping
-    // its own. Unless the user explicitly asked for a new one.
-    final session =
-        (fresh ? null : await canonicalBotSession(connection)) ??
-        newBotSession(bot);
-    if (!mounted) return;
+  /// Opens a bot's canonical chat. It runs on the dashboard gateway socket
+  /// rather than this screen's connection, so it needs no per-bot credentials.
+  void _openBotChat(BotProfile bot) {
     if (!_splitLayoutActive) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ChatScreen(connection: connection, session: session),
+          builder: (_) =>
+              BotChatScreen(connection: widget.connection, bot: bot),
         ),
       );
       return;
     }
     setState(() {
-      _botConnection = connection;
-      _selectedSession = session;
+      _selectedBot = bot;
+      _selectedSession = null;
       _selectedNavKey = null;
     });
   }
@@ -531,6 +518,15 @@ class _SessionListScreenState extends State<SessionListScreen> {
         child: _navScreen(navKey, embedded: true),
       );
     }
+    final bot = _selectedBot;
+    if (bot != null) {
+      return BotChatScreen(
+        key: ValueKey('bot-${bot.name}'),
+        connection: widget.connection,
+        bot: bot,
+        embedded: true,
+      );
+    }
     final selected = _selectedSession;
     if (selected == null) {
       return Center(
@@ -548,7 +544,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
     // Keyed by session id so switching sessions rebuilds the chat state.
     return ChatScreen(
       key: ValueKey(selected.id),
-      connection: _botConnection ?? widget.connection,
+      connection: widget.connection,
       session: selected,
       embedded: true,
     );

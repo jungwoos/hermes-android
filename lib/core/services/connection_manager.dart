@@ -5,12 +5,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import '../models/bot_target.dart';
 import '../models/connection.dart';
 import '../models/session.dart';
 
 // Re-export for convenience
-export '../models/bot_target.dart';
 export '../models/connection.dart';
 export '../models/session.dart';
 
@@ -21,21 +19,6 @@ class ConnectionManager {
   final SharedPreferences prefs;
 
   ConnectionManager(this.prefs);
-
-  /// Per-bot credentials, keyed by the connection they were reached from.
-  /// Bots live behind their own API keys, so the app remembers each one after
-  /// the user enters it rather than asking on every open.
-  static String _botTargetKey(String connectionId, String bot) =>
-      'bot_target_${connectionId}_$bot';
-
-  BotTarget? getBotTarget(String connectionId, String bot) =>
-      BotTarget.decode(prefs.getString(_botTargetKey(connectionId, bot)));
-
-  Future<void> saveBotTarget(
-    String connectionId,
-    String bot,
-    BotTarget target,
-  ) => prefs.setString(_botTargetKey(connectionId, bot), target.encode());
 
   List<SavedConnection> getConnections() {
     final jsonList = prefs.getStringList(_key) ?? [];

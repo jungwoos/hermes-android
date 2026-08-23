@@ -3,11 +3,12 @@
 // [BotRosterView] in its Bots tab instead.
 import 'package:flutter/material.dart';
 
+import '../services/bot_gateway.dart';
 import '../services/connection_manager.dart';
 import '../widgets/aurora.dart';
 import '../widgets/bot_roster.dart';
 import '../widgets/glass.dart';
-import 'chat_screen.dart';
+import 'bot_chat_screen.dart';
 
 class BotsScreen extends StatefulWidget {
   final SavedConnection connection;
@@ -29,27 +30,12 @@ class BotsScreen extends StatefulWidget {
 class _BotsScreenState extends State<BotsScreen> {
   final _roster = GlobalKey<BotRosterViewState>();
 
-  Future<void> _openBotChat(String bot, {required bool fresh}) async {
-    final connection = await resolveBotConnection(
-      context: context,
-      base: widget.connection,
-      bot: bot,
-      multiplex: _roster.currentState?.multiplex ?? false,
-    );
-    if (connection == null || !mounted) return;
-
-    // Reopen the bot's canonical chat — the same row the desktop opens —
-    // so the two clients share one conversation instead of each keeping
-    // its own. Unless the user explicitly asked for a new one.
-    final session =
-        (fresh ? null : await canonicalBotSession(connection)) ??
-        newBotSession(bot);
-    if (!mounted) return;
-
+  void _openBotChat(BotProfile bot) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ChatScreen(connection: connection, session: session),
+        builder: (_) =>
+            BotChatScreen(connection: widget.connection, bot: bot),
       ),
     );
   }

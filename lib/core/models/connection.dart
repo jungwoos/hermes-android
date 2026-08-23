@@ -1,5 +1,4 @@
 // Connection model for remote Hermes Gateway API Server.
-import 'bot_target.dart';
 
 class NormalizedConnectionHost {
   final String host;
@@ -63,36 +62,6 @@ class SavedConnection {
   /// both API surfaces on the same external HTTPS port. An explicit
   /// [dashboardPortOverride] always wins.
   int get dashboardPort => dashboardPortOverride ?? (useHttps ? port : 9119);
-
-  /// A connection that talks to [bot]'s own API server instead of the
-  /// profile this connection was saved for.
-  ///
-  /// Host, HTTPS and the dashboard settings carry over — the dashboard is
-  /// shared across profiles — but the port, path prefix and API key come from
-  /// the bot's [target], because the gateway scopes API keys per profile.
-  ///
-  /// The id is derived rather than generated so repeated opens of the same
-  /// bot reuse one identity (chat scroll positions are keyed off it).
-  factory SavedConnection.forBot(
-    SavedConnection base,
-    String bot,
-    BotTarget target,
-  ) {
-    return SavedConnection(
-      id: '${base.id}#$bot',
-      label: bot,
-      host: base.host,
-      port: target.port,
-      apiKey: target.apiKey,
-      useHttps: base.useHttps,
-      gatewayPrefix: target.prefix.isEmpty ? null : target.prefix,
-      dashboardPrefix: base.dashboardPrefix,
-      dashboardProxied: base.dashboardProxied,
-      dashboardPortOverride: base.dashboardPortOverride,
-      dashboardUsername: base.dashboardUsername,
-      dashboardPassword: base.dashboardPassword,
-    );
-  }
 
   /// Joins a base URL with an optional path prefix, normalising slashes.
   static String joinBaseUrl(String baseUrl, String pathPrefix) {
