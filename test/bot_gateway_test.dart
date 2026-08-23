@@ -60,6 +60,11 @@ const _profilesResult = {
       'model': 'grok-4.6',
       'skill_count': 12,
       'has_avatar': true,
+      // An older desktop pins the chat here; the gateway still reports the
+      // title-resolved row alongside it.
+      'ui_meta': {
+        'hermes-bots': {'chat': '20260818_230411_POINTER'},
+      },
       'canonical_session': {
         'id': '20260821_010104_8e239b',
         'resolved_id': '20260821_010104_TIP',
@@ -89,8 +94,9 @@ void main() {
 
     expect(bots.map((b) => b.name), ['gmail', 'fresh']);
     final gmail = bots.first;
-    // resolved_id follows the compression lineage to the live tip.
-    expect(gmail.canonicalSessionId, '20260821_010104_TIP');
+    // The desktop pointer wins: it is the conversation the user's own
+    // desktop opens, even though the gateway resolved a different row.
+    expect(gmail.canonicalSessionId, '20260818_230411_POINTER');
     expect(gmail.messageCount, 89);
     expect(gmail.lastActive, 1787241666.4);
     expect(gmail.label, 'gmail');
@@ -103,7 +109,7 @@ void main() {
     final transport = ScriptedTransport({
       'profiles.list': _profilesResult,
       'session.resume': {
-        'session_id': '20260821_010104_TIP',
+        'session_id': '20260818_230411_POINTER',
         'messages': [
           {'role': 'user', 'text': 'Hey', 'timestamp': 1787241666.4},
           {'role': 'assistant', 'text': 'Hello', 'timestamp': 1787241670.0},
@@ -119,7 +125,7 @@ void main() {
     final resume = transport.calls.last;
     expect(resume['method'], 'session.resume');
     expect(resume['params']['profile'], 'gmail');
-    expect(resume['params']['session_id'], '20260821_010104_TIP');
+    expect(resume['params']['session_id'], '20260818_230411_POINTER');
     expect(chat!.messages.map((m) => m.role), ['user', 'assistant', 'tool']);
     expect(chat.messages.first.text, 'Hey');
   });
@@ -190,6 +196,51 @@ void main() {
 
     test('passes an unfamiliar failure through unchanged', () {
       expect(describeBotFailure(StateError('kaboom')), 'Bad state: kaboom');
+    });
+  });
+
+  group('chat identity across desktop versions', () {
+    BotProfile parse(Map<String, dynamic> row) => BotProfile.fromRpc(row);
+
+    test('falls back to the resolved row when no pointer is stored', () {
+      // Newer desktops drop the pointer and identify the chat by title.
+      final bot = parse({
+        'name': 'gmail',
+        'canonical_session': {
+          'id': 'ROW',
+          'resolved_id': 'TIP',
+        },
+      });
+
+      expect(bot.canonicalSessionId, 'TIP');
+    });
+
+    test('an empty or malformed pointer does not shadow the resolved row', () {
+      for (final meta in [
+        {'hermes-bots': {'chat': ''}},
+        {'hermes-bots': {'chat': 42}},
+        {'hermes-bots': 'nonsense'},
+        {'other': {}},
+      ]) {
+        final bot = parse({
+          'name': 'gmail',
+          'ui_meta': meta,
+          'canonical_session': {'id': 'ROW', 'resolved_id': 'TIP'},
+        });
+        expect(bot.canonicalSessionId, 'TIP', reason: '$meta');
+      }
+    });
+
+    test('a pointer with no resolved row is still openable', () {
+      final bot = parse({
+        'name': 'gmail',
+        'ui_meta': {
+          'hermes-bots': {'chat': 'PINNED'},
+        },
+        'canonical_session': null,
+      });
+
+      expect(bot.canonicalSessionId, 'PINNED');
     });
   });
 }

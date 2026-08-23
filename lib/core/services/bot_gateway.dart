@@ -38,8 +38,15 @@ class BotProfile {
   final String model;
   final int skillCount;
 
-  /// The bot's forever-chat, already resolved by the gateway. Null when the
-  /// bot has never been opened anywhere.
+  /// The bot's forever-chat. Null when the bot has never been opened.
+  ///
+  /// Two mechanisms exist and the installed desktop decides which is real.
+  /// Older builds pin the chat with a session id stored in
+  /// `ui_meta['hermes-bots'].chat`; newer ones drop that pointer and identify
+  /// the chat by the title `Bot Chat`, which the gateway resolves and reports
+  /// as `canonical_session`. Preferring the pointer when it is present and
+  /// falling back to the resolved row otherwise matches both, which is what
+  /// makes mobile open the conversation the user's own desktop opens.
   final String? canonicalSessionId;
   final String canonicalPreview;
   final int messageCount;
@@ -53,7 +60,8 @@ class BotProfile {
     final chat = canonical is Map<String, dynamic> ? canonical : null;
     // `resolved_id` follows a compression lineage to the live tip; `id` is the
     // row that lineage started from.
-    final id = (chat?['resolved_id'] ?? chat?['id']) as String?;
+    final resolved = (chat?['resolved_id'] ?? chat?['id']) as String?;
+    final id = _desktopChatPointer(row) ?? resolved;
     final active = chat?['last_active'] ?? chat?['started_at'];
     return BotProfile(
       name: (row['name'] as String?) ?? '',
@@ -67,6 +75,16 @@ class BotProfile {
       hasAvatar: row['has_avatar'] == true,
     );
   }
+}
+
+/// The session id an older desktop pinned this bot to, if any.
+String? _desktopChatPointer(Map<String, dynamic> row) {
+  final meta = row['ui_meta'];
+  if (meta is! Map) return null;
+  final bots = meta['hermes-bots'];
+  if (bots is! Map) return null;
+  final chat = bots['chat'];
+  return chat is String && chat.isNotEmpty ? chat : null;
 }
 
 /// One turn in a bot's transcript.
