@@ -197,37 +197,17 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
   void _openSession(Session session, {bool fromDrawer = false}) {
     if (fromDrawer) Navigator.pop(context);
-    if (_splitLayoutActive) {
-      setState(() {
-        _selectedSession = session;
-        _selectedNavKey = null;
-        _selectedBot = null;
-      });
-      return;
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            ChatScreen(connection: widget.connection, session: session),
-      ),
-    );
+    setState(() {
+      _selectedSession = session;
+      _selectedNavKey = null;
+      _selectedBot = null;
+    });
   }
 
   /// Opens a bot's canonical chat. It runs on the dashboard gateway socket
   /// rather than this screen's connection, so it needs no per-bot credentials.
   void _openBotChat(BotProfile bot, {bool fromDrawer = false}) {
     if (fromDrawer) Navigator.pop(context);
-    if (!_splitLayoutActive) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) =>
-              BotChatScreen(connection: widget.connection, bot: bot),
-        ),
-      );
-      return;
-    }
     setState(() {
       _selectedBot = bot;
       _selectedSession = null;
@@ -245,16 +225,11 @@ class _SessionListScreenState extends State<SessionListScreen> {
   }
 
   void _openNav(String key, {required bool fromDrawer}) {
-    if (!fromDrawer && _splitLayoutActive) {
-      // Split layout: show the destination in the detail pane.
-      setState(() => _selectedNavKey = key);
-      return;
-    }
-    if (fromDrawer) Navigator.pop(context); // close drawer
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => _navScreen(key, embedded: false)),
-    );
+    if (fromDrawer) Navigator.pop(context);
+    setState(() {
+      _selectedNavKey = key;
+      _selectedBot = null;
+    });
   }
 
   Widget _navScreen(String key, {required bool embedded}) {
@@ -299,69 +274,57 @@ class _SessionListScreenState extends State<SessionListScreen> {
       onPressed: _loading ? null : _fetchSessions,
     );
 
-    if (split) {
-      // Wide screens: the hamburger toggles a fixed side panel instead of
-      // opening a modal drawer; the selected chat renders in the right pane.
-      return AuroraScaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.menu),
-            tooltip: _panelOpen ? 'Hide session panel' : 'Show session panel',
-            onPressed: _togglePanel,
-          ),
-          title: title,
-          centerTitle: true,
-          actions: [
-            ?healthWarning,
-            refreshButton,
-            if (!_panelOpen)
-              IconButton(
-                icon: const Icon(Icons.add_comment_outlined),
-                tooltip: 'New Chat',
-                onPressed: _createNewSession,
-              ),
-          ],
-        ),
-        body: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_panelOpen) ...[
-              SizedBox(width: _panelWidth, child: _buildSidePanel()),
-              const VerticalDivider(width: 1, thickness: 1),
-            ],
-            Expanded(child: _buildDetailPane()),
-          ],
-        ),
-      );
-    }
+    // Narrow is the same layout with the panel closed: one main pane showing
+    // the selection, and the list behind a drawer instead of pinned beside
+    // it. Keeping them one shape is why selecting never pushes a route.
+    final panelPinned = split && _panelOpen;
 
     return AuroraScaffold(
       appBar: AppBar(
+        leading: split
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: _panelOpen
+                    ? 'Hide session panel'
+                    : 'Show session panel',
+                onPressed: _togglePanel,
+              )
+            : null,
         title: title,
         centerTitle: true,
         actions: [
           ?healthWarning,
           refreshButton,
+          // The panel carries its own New Chat button; this stands in for it
+          // whenever the panel is not on screen.
+          if (!panelPinned)
+            IconButton(
+              icon: const Icon(Icons.add_comment_outlined),
+              tooltip: 'New Chat',
+              onPressed: _createNewSession,
+            ),
         ],
       ),
-      drawer: _buildDrawer(),
-      floatingActionButton: GradientOrbButton(
-        icon: Icons.add_comment_outlined,
-        size: 58,
-        tooltip: 'New Chat',
-        onPressed: _createNewSession,
+      drawer: split ? null : _buildDrawer(),
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (panelPinned) ...[
+            SizedBox(width: _panelWidth, child: _buildSidePanel()),
+            const VerticalDivider(width: 1, thickness: 1),
+          ],
+          Expanded(child: _buildDetailPane()),
+        ],
       ),
-      body: _buildBody(),
     );
   }
 
-  /// Nav destinations shared by the modal drawer and the fixed side panel.
+  /// Nav destinations, shared by the drawer and the pinned panel.
   List<Widget> _navTiles({required bool fromDrawer}) {
     final scheme = Theme.of(context).colorScheme;
 
     Widget tile(String key, IconData icon, String label) {
-      final selected =
-          !fromDrawer && _splitLayoutActive && _selectedNavKey == key;
+      final selected = _selectedNavKey == key;
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
         child: ListTile(
@@ -492,7 +455,9 @@ class _SessionListScreenState extends State<SessionListScreen> {
           padding: const EdgeInsets.all(32),
           child: HermesHeader(
             orbSize: 140,
-            subtitle: _panelOpen
+            // The panel is only on screen when it is both open and pinned;
+            // otherwise the list lives behind the menu button.
+            subtitle: _splitLayoutActive && _panelOpen
                 ? 'Pick a session from the panel or start a new chat'
                 : 'Open the menu to pick a session or start a new chat',
           ),
