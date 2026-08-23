@@ -7,7 +7,6 @@ import '../widgets/aurora.dart';
 import '../widgets/bot_roster.dart';
 import '../widgets/brand_hero.dart';
 import '../widgets/glass.dart';
-import '../widgets/plasma_orb.dart';
 import '../widgets/status_view.dart';
 import '../services/bot_gateway.dart';
 import 'bot_chat_screen.dart';
@@ -55,7 +54,6 @@ class _SessionListScreenState extends State<SessionListScreen> {
   /// Set while the detail pane is showing a bot's chat rather than a session
   /// of this screen's own profile.
   BotProfile? _selectedBot;
-  final _botRoster = GlobalKey<BotRosterViewState>();
 
   /// Wide screens use the split layout; narrow screens fall back to the
   /// modal drawer + pushed routes.
@@ -181,7 +179,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
   }
 
-  void _createNewSession() {
+  void _createNewSession({bool fromDrawer = false}) {
+    if (fromDrawer) Navigator.pop(context);
     final sessionId = GatewayChatClient.generateSessionId();
     final session = Session(
       id: sessionId,
@@ -196,7 +195,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
     _openSession(session);
   }
 
-  void _openSession(Session session) {
+  void _openSession(Session session, {bool fromDrawer = false}) {
+    if (fromDrawer) Navigator.pop(context);
     if (_splitLayoutActive) {
       setState(() {
         _selectedSession = session;
@@ -216,7 +216,8 @@ class _SessionListScreenState extends State<SessionListScreen> {
 
   /// Opens a bot's canonical chat. It runs on the dashboard gateway socket
   /// rather than this screen's connection, so it needs no per-bot credentials.
-  void _openBotChat(BotProfile bot) {
+  void _openBotChat(BotProfile bot, {bool fromDrawer = false}) {
+    if (fromDrawer) Navigator.pop(context);
     if (!_splitLayoutActive) {
       Navigator.push(
         context,
@@ -383,7 +384,6 @@ class _SessionListScreenState extends State<SessionListScreen> {
     }
 
     return [
-      tile('bots', Icons.smart_toy_outlined, 'Bots'),
       tile('memory', Icons.memory, 'Memory'),
       tile('cron', Icons.schedule, 'Cron Jobs'),
       tile('skills', Icons.auto_awesome, 'Skills'),
@@ -392,118 +392,76 @@ class _SessionListScreenState extends State<SessionListScreen> {
     ];
   }
 
-  Widget _buildDrawer() {
-    final theme = Theme.of(context);
-    return Drawer(
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Brand header: the orb doubles as the drawer's masthead.
+  /// The side panel's content: a Sessions/Bots switch, the list, and the nav
+  /// destinations.
+  ///
+  /// The drawer and the pinned panel render this same tree so the surface
+  /// does not change shape when a rotation crosses the split-layout
+  /// breakpoint. Only the tap behaviour differs — from the drawer a
+  /// selection has to dismiss it first.
+  Widget _buildPanelContent({required bool inDrawer}) {
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  label: Text('Sessions'),
+                  icon: Icon(Icons.forum_outlined, size: 16),
+                ),
+                ButtonSegment(
+                  value: true,
+                  label: Text('Bots'),
+                  icon: Icon(Icons.smart_toy_outlined, size: 16),
+                ),
+              ],
+              selected: {_panelShowsBots},
+              showSelectedIcon: false,
+              onSelectionChanged: (s) =>
+                  setState(() => _panelShowsBots = s.first),
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            ),
+          ),
+          if (!_panelShowsBots)
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
-              child: Row(
-                children: [
-                  const PlasmaOrb(size: 54, intensity: 0.6),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'HERMES',
-                          style: hermesBrandTextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 5,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.connection.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: GradientPillButton(
+                label: 'New Chat',
+                icon: Icons.add,
+                expand: true,
+                onPressed: () => _createNewSession(fromDrawer: inDrawer),
               ),
             ),
-            const Divider(indent: 16, endIndent: 16),
-            const SizedBox(height: 4),
-            ..._navTiles(fromDrawer: true),
-          ],
-        ),
+          Expanded(
+            child: _panelShowsBots
+                ? BotRosterView(
+                    connection: widget.connection,
+                    compact: true,
+                    onOpenChat: (bot) =>
+                        _openBotChat(bot, fromDrawer: inDrawer),
+                  )
+                : _buildBody(inPanel: true, fromDrawer: inDrawer),
+          ),
+          const Divider(height: 1),
+          const SizedBox(height: 4),
+          ..._navTiles(fromDrawer: inDrawer),
+        ],
       ),
     );
   }
 
-  /// Fixed left panel for the wide-screen split layout: new-chat button,
-  /// session list, and the nav destinations at the bottom.
+  Widget _buildDrawer() =>
+      Drawer(child: _buildPanelContent(inDrawer: true));
+
+  /// Fixed left panel for the wide-screen split layout.
   Widget _buildSidePanel() {
-    final brightness = Theme.of(context).brightness;
     return Material(
       // Translucent so the aurora keeps flowing behind the panel.
-      color: HermesGlass.fill(brightness),
-      child: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              child: SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(
-                    value: false,
-                    label: Text('Sessions'),
-                    icon: Icon(Icons.forum_outlined, size: 16),
-                  ),
-                  ButtonSegment(
-                    value: true,
-                    label: Text('Bots'),
-                    icon: Icon(Icons.smart_toy_outlined, size: 16),
-                  ),
-                ],
-                selected: {_panelShowsBots},
-                showSelectedIcon: false,
-                onSelectionChanged: (s) =>
-                    setState(() => _panelShowsBots = s.first),
-                style: const ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                ),
-              ),
-            ),
-            if (!_panelShowsBots)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                child: GradientPillButton(
-                  label: 'New Chat',
-                  icon: Icons.add,
-                  expand: true,
-                  onPressed: _createNewSession,
-                ),
-              ),
-            Expanded(
-              child: _panelShowsBots
-                  ? BotRosterView(
-                      key: _botRoster,
-                      connection: widget.connection,
-                      compact: true,
-                      onOpenChat: _openBotChat,
-                    )
-                  : _buildBody(inPanel: true),
-            ),
-            const Divider(height: 1),
-            const SizedBox(height: 4),
-            ..._navTiles(fromDrawer: false),
-          ],
-        ),
-      ),
+      color: HermesGlass.fill(Theme.of(context).brightness),
+      child: _buildPanelContent(inDrawer: false),
     );
   }
 
@@ -550,7 +508,7 @@ class _SessionListScreenState extends State<SessionListScreen> {
     );
   }
 
-  Widget _buildBody({bool inPanel = false}) {
+  Widget _buildBody({bool inPanel = false, bool fromDrawer = false}) {
     if (!_healthOk) {
       if (_healthChecking) {
         return StatusView.loading(
@@ -604,7 +562,9 @@ class _SessionListScreenState extends State<SessionListScreen> {
             child: GlassCard(
               active: isSelected,
               padding: const EdgeInsets.all(14),
-              onTap: isDeleting ? null : () => _openSession(session),
+              onTap: isDeleting
+                  ? null
+                  : () => _openSession(session, fromDrawer: fromDrawer),
               onLongPress: isDeleting
                   ? null
                   : () => _confirmDeleteSession(session),
