@@ -79,11 +79,20 @@ class _ChatScreenState extends State<ChatScreen> {
   double _lastPixels = 0;
   static final Map<String, double> _savedPositions = {};
 
+  /// How far from the end still counts as "reading the latest message".
+  static const double _atBottomSlack = 200;
+
+  /// Keyboard height at the last dependency change, so [didChangeDependencies]
+  /// can tell an opening IME from a closing one.
+  double _keyboardInset = 0;
+
   @override
   void initState() {
     super.initState();
+    // Reached only through a session, which only exists on a gateway-backed
+    // connection.
     _client = ApiClient(
-      baseUrl: widget.connection.baseUrl,
+      baseUrl: widget.connection.gatewayBaseUrl!,
       apiKey: widget.connection.apiKey,
       pathPrefix: widget.connection.gatewayPrefix ?? '',
     );
@@ -235,10 +244,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_scrollController.hasClients) {
       _lastPixels = _scrollController.position.pixels;
     }
-    final atBottom =
-        _scrollController.hasClients &&
-        _scrollController.position.pixels >=
-            _scrollController.position.maxScrollExtent - 200;
+    final atBottom = _scrollController.hasClients && _isAtBottom;
     if (atBottom != !_showScrollToBottom && _streaming) {
       setState(() => _showScrollToBottom = !atBottom);
     }
@@ -251,6 +257,35 @@ class _ChatScreenState extends State<ChatScreen> {
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
+    }
+  }
+
+  /// True while the newest message is on screen. A list with no viewport yet
+  /// counts as at the bottom, which is where a fresh transcript opens.
+  bool get _isAtBottom =>
+      !_scrollController.hasClients ||
+      _scrollController.position.pixels >=
+          _scrollController.position.maxScrollExtent - _atBottomSlack;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The keyboard shrinks the viewport under the transcript. The composer
+    // rises with it (Scaffold handles that), but the list keeps its offset, so
+    // the message the user was reading would slide out of sight behind the
+    // composer. Follow the end instead — the metrics arrive in steps as the
+    // IME slides up, and jumping on each step keeps the transcript glued to
+    // the keyboard rather than animating after it.
+    final inset = MediaQuery.viewInsetsOf(context).bottom;
+    final opening = inset > _keyboardInset;
+    // Read before the new metrics are laid out, so this is where the user was.
+    final followEnd = _isAtBottom;
+    _keyboardInset = inset;
+    if (opening && followEnd) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      });
     }
   }
 

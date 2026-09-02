@@ -49,6 +49,9 @@ class ScriptedTransport implements RpcTransport {
       'params': {'type': type, 'session_id': 's1', 'payload': payload},
     }),
   );
+
+  /// Pushes a frame verbatim, for envelopes this test needs to shape itself.
+  void push(Map<String, dynamic> frame) => _in.add(jsonEncode(frame));
 }
 
 // Shapes captured from a live gated dashboard.
@@ -105,30 +108,33 @@ void main() {
     expect(bots.last.canonicalSessionId, isNull);
   });
 
-  test('resume carries the profile — without it the row is not found', () async {
-    final transport = ScriptedTransport({
-      'profiles.list': _profilesResult,
-      'session.resume': {
-        'session_id': '20260818_230411_POINTER',
-        'messages': [
-          {'role': 'user', 'text': 'Hey', 'timestamp': 1787241666.4},
-          {'role': 'assistant', 'text': 'Hello', 'timestamp': 1787241670.0},
-          {'role': 'tool', 'text': 'ran a search'},
-        ],
-      },
-    });
-    final gateway = BotGateway(HermesRpcClient(transport));
-    final bots = await gateway.listProfiles();
+  test(
+    'resume carries the profile — without it the row is not found',
+    () async {
+      final transport = ScriptedTransport({
+        'profiles.list': _profilesResult,
+        'session.resume': {
+          'session_id': '20260818_230411_POINTER',
+          'messages': [
+            {'role': 'user', 'text': 'Hey', 'timestamp': 1787241666.4},
+            {'role': 'assistant', 'text': 'Hello', 'timestamp': 1787241670.0},
+            {'role': 'tool', 'text': 'ran a search'},
+          ],
+        },
+      });
+      final gateway = BotGateway(HermesRpcClient(transport));
+      final bots = await gateway.listProfiles();
 
-    final chat = await gateway.openCanonicalChat(bots.first);
+      final chat = await gateway.openCanonicalChat(bots.first);
 
-    final resume = transport.calls.last;
-    expect(resume['method'], 'session.resume');
-    expect(resume['params']['profile'], 'gmail');
-    expect(resume['params']['session_id'], '20260818_230411_POINTER');
-    expect(chat!.messages.map((m) => m.role), ['user', 'assistant', 'tool']);
-    expect(chat.messages.first.text, 'Hey');
-  });
+      final resume = transport.calls.last;
+      expect(resume['method'], 'session.resume');
+      expect(resume['params']['profile'], 'gmail');
+      expect(resume['params']['session_id'], '20260818_230411_POINTER');
+      expect(chat!.messages.map((m) => m.role), ['user', 'assistant', 'tool']);
+      expect(chat.messages.first.text, 'Hey');
+    },
+  );
 
   test('a bot with no canonical chat is not opened', () async {
     // Minting one here would fork the identity the desktop pins by name.
@@ -141,9 +147,7 @@ void main() {
   });
 
   test('submit sends the turn and the reply arrives as events', () async {
-    final transport = ScriptedTransport({
-      'prompt.submit': <String, dynamic>{},
-    });
+    final transport = ScriptedTransport({'prompt.submit': <String, dynamic>{}});
     final gateway = BotGateway(HermesRpcClient(transport));
     final seen = <String>[];
     gateway.events.listen((e) => seen.add(e.method));
@@ -161,23 +165,29 @@ void main() {
     expect(seen, ['message.delta', 'message.complete', 'turn.end']);
   });
 
-  test('a gateway error surfaces rather than looking like an empty chat', () async {
-    final transport = ScriptedTransport({'profiles.list': _profilesResult});
-    final gateway = BotGateway(HermesRpcClient(transport));
-    final bots = await gateway.listProfiles();
+  test(
+    'a gateway error surfaces rather than looking like an empty chat',
+    () async {
+      final transport = ScriptedTransport({'profiles.list': _profilesResult});
+      final gateway = BotGateway(HermesRpcClient(transport));
+      final bots = await gateway.listProfiles();
 
-    // session.resume is unscripted, so the transport answers 4001 — the same
-    // code a corrupt or unreachable profile returns.
-    await expectLater(
-      gateway.openCanonicalChat(bots.first),
-      throwsA(isA<RpcError>().having((e) => e.code, 'code', 4001)),
-    );
-  });
+      // session.resume is unscripted, so the transport answers 4001 — the same
+      // code a corrupt or unreachable profile returns.
+      await expectLater(
+        gateway.openCanonicalChat(bots.first),
+        throwsA(isA<RpcError>().having((e) => e.code, 'code', 4001)),
+      );
+    },
+  );
 
   group('describeBotFailure', () {
     test('names a corrupt profile store and scopes the blast radius', () {
       final text = describeBotFailure(
-        RpcError('session.resume', 'handler error: database disk image is malformed'),
+        RpcError(
+          'session.resume',
+          'handler error: database disk image is malformed',
+        ),
       );
 
       expect(text, contains('corrupted'));
@@ -206,10 +216,7 @@ void main() {
       // Newer desktops drop the pointer and identify the chat by title.
       final bot = parse({
         'name': 'gmail',
-        'canonical_session': {
-          'id': 'ROW',
-          'resolved_id': 'TIP',
-        },
+        'canonical_session': {'id': 'ROW', 'resolved_id': 'TIP'},
       });
 
       expect(bot.canonicalSessionId, 'TIP');
@@ -217,8 +224,12 @@ void main() {
 
     test('an empty or malformed pointer does not shadow the resolved row', () {
       for (final meta in [
-        {'hermes-bots': {'chat': ''}},
-        {'hermes-bots': {'chat': 42}},
+        {
+          'hermes-bots': {'chat': ''},
+        },
+        {
+          'hermes-bots': {'chat': 42},
+        },
         {'hermes-bots': 'nonsense'},
         {'other': {}},
       ]) {
@@ -231,6 +242,21 @@ void main() {
       }
     });
 
+    test('the pinned row and the compression tip are both kept', () {
+      // A turn cannot be submitted against a compressed row — only its tip —
+      // so the send path needs the second id to fall back to.
+      final bot = parse({
+        'name': 'gmail',
+        'ui_meta': {
+          'hermes-bots': {'chat': 'PINNED'},
+        },
+        'canonical_session': {'id': 'PINNED', 'resolved_id': 'TIP'},
+      });
+
+      expect(bot.canonicalSessionId, 'PINNED');
+      expect(bot.resolvedSessionId, 'TIP');
+    });
+
     test('a pointer with no resolved row is still openable', () {
       final bot = parse({
         'name': 'gmail',
@@ -241,6 +267,7 @@ void main() {
       });
 
       expect(bot.canonicalSessionId, 'PINNED');
+      expect(bot.resolvedSessionId, isNull);
     });
   });
 
@@ -265,6 +292,79 @@ void main() {
 
     test('a missing role reads as the assistant speaking', () {
       expect(BotMessage.fromRest({'content': 'x'}).role, 'assistant');
+    });
+  });
+
+  test('eventsFor keeps another session off this transcript', () async {
+    final transport = ScriptedTransport({});
+    final gateway = BotGateway(HermesRpcClient(transport));
+    final mine = <String>[];
+    gateway
+        .eventsForAny({'mine', 'mine-tip'})
+        .listen((e) => mine.add(e.method));
+
+    // Two sessions share the socket; only one is ours. The third frame has no
+    // session id at all, which must still get through.
+    transport.push({
+      'method': 'event',
+      'params': {
+        'type': 'message.delta',
+        'session_id': 'mine',
+        'payload': {'text': 'hi'},
+      },
+    });
+    transport.push({
+      'method': 'event',
+      'params': {
+        'type': 'message.delta',
+        'session_id': 'someone-elses-bot',
+        'payload': {'text': 'not for us'},
+      },
+    });
+    transport.push({
+      'method': 'event',
+      'params': {
+        'type': 'turn.error',
+        'payload': {'message': 'boom'},
+      },
+    });
+    await pumpEventQueue();
+
+    expect(mine, ['message.delta', 'turn.error']);
+    expect(
+      mine.length,
+      2,
+      reason: 'the other bot\'s frame must not reach this transcript',
+    );
+    await gateway.close();
+  });
+
+  group('attach', () {
+    test('returns the id the gateway opened, not the one asked for', () async {
+      // resume follows a compressed chat to its live tip and answers with it;
+      // submitting against the id we asked for is what returned 4001.
+      final transport = ScriptedTransport({
+        'session.resume': {'session_id': 'TIP', 'ok': true},
+      });
+      final gateway = BotGateway(HermesRpcClient(transport));
+
+      expect(await gateway.attach('POINTER', 'career'), 'TIP');
+      expect(transport.calls.single['params'], {
+        'session_id': 'POINTER',
+        'profile': 'career',
+        'omit_messages': true,
+      });
+      await gateway.close();
+    });
+
+    test('falls back to the requested id when the answer omits one', () async {
+      final transport = ScriptedTransport({
+        'session.resume': {'ok': true},
+      });
+      final gateway = BotGateway(HermesRpcClient(transport));
+
+      expect(await gateway.attach('POINTER', 'career'), 'POINTER');
+      await gateway.close();
     });
   });
 }

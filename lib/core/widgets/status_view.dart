@@ -82,55 +82,66 @@ class StatusView extends StatelessWidget {
     final isError = _kind == _StatusViewKind.error;
     final accent = isError ? hermesAlert : theme.colorScheme.onSurfaceVariant;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 88,
-              height: 88,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: accent.withValues(alpha: 0.10),
-                border: Border.all(color: accent.withValues(alpha: 0.28)),
-                boxShadow: isError
-                    ? hermesGlow(hermesAlert, alpha: 0.22, blur: 30)
-                    : null,
-              ),
-              child: Icon(icon, size: 36, color: accent),
+    // These states also render inside the pinned list column, which can be
+    // ~144dp wide: the roomy inset would leave the message a sliver, and a
+    // long error would run off the bottom, so it scrolls instead.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tight = constraints.maxWidth < 260;
+        return Center(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(
+              horizontal: tight ? 14 : 32,
+              vertical: 24,
             ),
-            const SizedBox(height: 20),
-            Text(
-              title!,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (message != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                message!,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  height: 1.5,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: accent.withValues(alpha: 0.10),
+                    border: Border.all(color: accent.withValues(alpha: 0.28)),
+                    boxShadow: isError
+                        ? hermesGlow(hermesAlert, alpha: 0.22, blur: 30)
+                        : null,
+                  ),
+                  child: Icon(icon, size: 36, color: accent),
                 ),
-              ),
-            ],
-            if (onRetry != null) ...[
-              const SizedBox(height: 24),
-              GradientPillButton(
-                label: 'Retry',
-                icon: Icons.refresh,
-                onPressed: onRetry,
-              ),
-            ],
-          ],
-        ),
-      ),
+                const SizedBox(height: 20),
+                Text(
+                  title!,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (message != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    message!,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+                if (onRetry != null) ...[
+                  const SizedBox(height: 24),
+                  GradientPillButton(
+                    label: 'Retry',
+                    icon: Icons.refresh,
+                    onPressed: onRetry,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -200,6 +211,7 @@ void showAppSnackBar(
   String message, {
   bool isError = false,
   Duration duration = const Duration(seconds: 4),
+  SnackBarAction? action,
 }) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
@@ -215,6 +227,7 @@ void showAppSnackBar(
         ],
       ),
       duration: duration,
+      action: action,
     ),
   );
 }

@@ -6,15 +6,16 @@ class Responsive {
   /// 600dp breakpoint — the Material Design standard for phone/tablet.
   static const double tabletBreakpoint = 600;
 
-  /// 720dp — wide enough to keep a pinned side panel next to the chat pane
-  /// (320dp panel + ≥400dp content). Covers most tablets even in portrait.
-  static const double sidePanelBreakpoint = 720;
+  /// 420dp — the floor for two panes: a 205dp list column plus ≥215dp of
+  /// content. A Fold pins the column on both screens (cover 475dp, main
+  /// 704dp); a 360dp phone still falls back to one column at a time.
+  static const double sidePanelBreakpoint = 420;
 
   /// Whether the current screen is wide enough for tablet layout.
   static bool isTablet(BuildContext context) =>
       MediaQuery.of(context).size.width >= tabletBreakpoint;
 
-  /// Whether the screen is wide enough to pin the side panel open.
+  /// Whether the screen is wide enough to pin the list column open.
   static bool canPinSidePanel(BuildContext context) =>
       MediaQuery.of(context).size.width >= sidePanelBreakpoint;
 

@@ -23,6 +23,7 @@ class GlassCard extends StatelessWidget {
     this.active = false,
     this.blur = false,
     this.glow = false,
+    this.tint,
     super.key,
   });
 
@@ -40,19 +41,41 @@ class GlassCard extends StatelessWidget {
   /// Adds an accent bloom behind the card.
   final bool glow;
 
+  /// Fills the surface with a gradient in this colour instead of the neutral
+  /// glass. The bot roster passes each bot's own accent, so a row is
+  /// identifiable by colour without spending width on a marker.
+  final Color? tint;
+
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
     final borderRadius = BorderRadius.circular(radius);
 
+    final tint = this.tint;
     Widget surface = DecoratedBox(
       decoration: BoxDecoration(
-        color: active
+        color: tint != null
+            ? null
+            : active
             ? HermesGlass.activeFill(brightness)
             : HermesGlass.fill(brightness),
+        // Left-to-right fade, so a row of tinted cards reads as one list
+        // rather than a stack of solid blocks.
+        gradient: tint == null
+            ? null
+            : LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  tint.withValues(alpha: active ? 0.42 : 0.26),
+                  tint.withValues(alpha: active ? 0.16 : 0.05),
+                ],
+              ),
         borderRadius: borderRadius,
         border: Border.all(
-          color: active
+          color: tint != null
+              ? tint.withValues(alpha: active ? 0.80 : 0.45)
+              : active
               ? HermesGlass.activeStroke(brightness)
               : HermesGlass.stroke(brightness),
         ),
@@ -195,7 +218,12 @@ class GradientPillButton extends StatelessWidget {
             onTap: onPressed,
             borderRadius: BorderRadius.circular(HermesRadius.pill),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+              // Stretched inside a narrow column there is no room for the
+              // wider inset, and the label has to be allowed to shrink.
+              padding: EdgeInsets.symmetric(
+                horizontal: expand ? 14 : 22,
+                vertical: 14,
+              ),
               child: Row(
                 mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -204,11 +232,15 @@ class GradientPillButton extends StatelessWidget {
                     Icon(icon, size: 18, color: Colors.white),
                     const SizedBox(width: 8),
                   ],
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],

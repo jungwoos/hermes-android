@@ -56,7 +56,7 @@ void main() {
         id: '1',
         label: 'Remote',
         host: 'hermes.example.com',
-        port: 443,
+        gatewayPort: 443,
         apiKey: 'key',
         useHttps: true,
       );
@@ -79,7 +79,7 @@ void main() {
         id: '1',
         label: 'Home',
         host: '192.168.1.50',
-        port: 8642,
+        gatewayPort: 8642,
         apiKey: 'key',
       );
 
@@ -95,7 +95,7 @@ void main() {
         id: '1',
         label: 'Remote',
         host: 'hermes.example.com',
-        port: 443,
+        gatewayPort: 443,
         apiKey: 'key',
         useHttps: true,
       );
@@ -111,12 +111,76 @@ void main() {
       );
     });
 
+    test('a dashboard-only connection has no gateway', () {
+      final conn = SavedConnection(
+        id: '1',
+        label: 'Home',
+        host: '192.168.1.50',
+        dashboardPortOverride: 9119,
+      );
+
+      expect(conn.hasGateway, isFalse);
+      expect(conn.gatewayBaseUrl, isNull);
+      expect(conn.apiKey, '');
+      expect(conn.dashboardPort, 9119);
+      expect(conn.dashboardBaseUrl, 'http://192.168.1.50:9119');
+    });
+
+    test('a gateway-backed connection exposes its own base URL', () {
+      final conn = SavedConnection(
+        id: '1',
+        label: 'Home',
+        host: '192.168.1.50',
+        dashboardPortOverride: 9119,
+        gatewayPort: 8642,
+        apiKey: 'key',
+      );
+
+      expect(conn.hasGateway, isTrue);
+      expect(conn.gatewayBaseUrl, 'http://192.168.1.50:8642');
+    });
+
+    test('dashboardSecured reports how the dashboard is reached', () {
+      final open = SavedConnection(id: '1', label: 'Home', host: 'h');
+      expect(open.dashboardSecured, isFalse);
+
+      expect(
+        open.copyWith(dashboardUsername: 'misha').dashboardSecured,
+        isTrue,
+      );
+      expect(open.copyWith(dashboardProxied: true).dashboardSecured, isTrue);
+    });
+
+    test('an HTTPS dashboard URL without a port normalizes to 443', () {
+      final normalized = SavedConnection.normalizeHostAndPort(
+        'https://hermes.example.com',
+        SavedConnection.defaultDashboardPort,
+      );
+
+      expect(normalized.port, 443);
+      expect(normalized.useHttps, isTrue);
+    });
+
+    test('a legacy map without a dashboard port keeps its gateway', () {
+      final restored = SavedConnection.fromMap({
+        'id': '1',
+        'label': 'Old',
+        'host': '192.168.1.50',
+        'port': 8642,
+        'api_key': 'key',
+      });
+
+      expect(restored.gatewayPort, 8642);
+      expect(restored.hasGateway, isTrue);
+      expect(restored.dashboardPort, 9119);
+    });
+
     test('explicit dashboard port override wins over topology default', () {
       final local = SavedConnection(
         id: '1',
         label: 'Home',
         host: '192.168.1.50',
-        port: 8642,
+        gatewayPort: 8642,
         apiKey: 'key',
         dashboardPortOverride: 30433,
       );
@@ -126,7 +190,7 @@ void main() {
         id: '2',
         label: 'Remote',
         host: 'hermes.example.com',
-        port: 443,
+        gatewayPort: 443,
         apiKey: 'key',
         useHttps: true,
         dashboardPortOverride: 8443,
@@ -141,7 +205,7 @@ void main() {
           id: '1',
           label: 'Home',
           host: '192.168.1.50',
-          port: 8642,
+          gatewayPort: 8642,
           apiKey: 'key',
           dashboardPortOverride: 30433,
           dashboardUsername: 'misha',
@@ -189,7 +253,7 @@ void main() {
         id: '1',
         label: 'Home',
         host: '192.168.1.50',
-        port: 8642,
+        gatewayPort: 8642,
         apiKey: 'key',
         gatewayPrefix: '/profile/peter',
         dashboardPrefix: '/dashboard',
@@ -529,6 +593,33 @@ void main() {
       client.close();
     });
 
+    test('getProfileSessions scopes the roster query to one profile', () async {
+      final client = DashboardClient(
+        host: 'hermes.local',
+        port: 9119,
+        proxied: true,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/profiles/sessions');
+          expect(request.url.queryParameters['profile'], 'career');
+          expect(request.url.queryParameters['order'], 'recent');
+          return http.Response(
+            jsonEncode({
+              'sessions': [
+                {'id': 'S2', 'title': 'Bot Chat', 'last_active': 2},
+                {'id': 'S1', 'title': 'scratch', 'last_active': 1},
+                'junk',
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+
+      final rows = await client.getProfileSessions('career');
+      expect(rows.map((r) => r['id']), ['S2', 'S1']);
+      client.close();
+    });
+
     test('active and current profiles are reported separately', () async {
       final client = DashboardClient(
         host: 'hermes.local',
@@ -563,19 +654,22 @@ void main() {
       client.close();
     });
 
-    test('a ticket response without a ticket is an error, not an empty one', () async {
-      final client = DashboardClient(
-        host: 'hermes.local',
-        port: 9119,
-        proxied: true,
-        httpClient: MockClient(
-          (request) async => http.Response('{"ttl_seconds":30}', 200),
-        ),
-      );
+    test(
+      'a ticket response without a ticket is an error, not an empty one',
+      () async {
+        final client = DashboardClient(
+          host: 'hermes.local',
+          port: 9119,
+          proxied: true,
+          httpClient: MockClient(
+            (request) async => http.Response('{"ttl_seconds":30}', 200),
+          ),
+        );
 
-      await expectLater(client.mintWsTicket(), throwsA(isA<Exception>()));
-      client.close();
-    });
+        await expectLater(client.mintWsTicket(), throwsA(isA<Exception>()));
+        client.close();
+      },
+    );
 
     test('last-active per profile takes the newest row for each', () async {
       final client = DashboardClient(
@@ -606,25 +700,28 @@ void main() {
       client.close();
     });
 
-    test('setActiveProfile posts the name and returns the new active', () async {
-      String? sentBody;
-      final client = DashboardClient(
-        host: 'hermes.local',
-        port: 9119,
-        proxied: true,
-        httpClient: MockClient((request) async {
-          expect(request.url.path, '/api/profiles/active');
-          expect(request.method, 'POST');
-          sentBody = request.body;
-          return http.Response('{"ok":true,"active":"lucy"}', 200);
-        }),
-      );
+    test(
+      'setActiveProfile posts the name and returns the new active',
+      () async {
+        String? sentBody;
+        final client = DashboardClient(
+          host: 'hermes.local',
+          port: 9119,
+          proxied: true,
+          httpClient: MockClient((request) async {
+            expect(request.url.path, '/api/profiles/active');
+            expect(request.method, 'POST');
+            sentBody = request.body;
+            return http.Response('{"ok":true,"active":"lucy"}', 200);
+          }),
+        );
 
-      final res = await client.setActiveProfile('lucy');
-      expect(sentBody, '{"name":"lucy"}');
-      expect(res['active'], 'lucy');
-      client.close();
-    });
+        final res = await client.setActiveProfile('lucy');
+        expect(sentBody, '{"name":"lucy"}');
+        expect(res['active'], 'lucy');
+        client.close();
+      },
+    );
   });
 
   group('ConnectionManager', () {
@@ -639,15 +736,16 @@ void main() {
       mgr.saveConnection(
         'Home',
         '192.168.1.50',
-        8642,
-        'key',
         dashboardPort: 30433,
         dashboardUsername: 'misha',
         dashboardPassword: 'secret',
+        gatewayPort: 8642,
+        apiKey: 'key',
       );
 
       final conn = mgr.getConnections().single;
       expect(conn.dashboardPortOverride, 30433);
+      expect(conn.gatewayPort, 8642);
       expect(conn.dashboardUsername, 'misha');
       expect(conn.dashboardPassword, 'secret');
     });
@@ -655,7 +753,13 @@ void main() {
     test('updateDashboardAuth sets then clears fields', () async {
       final prefs = await SharedPreferences.getInstance();
       final mgr = ConnectionManager(prefs);
-      mgr.saveConnection('Home', '192.168.1.50', 8642, 'key');
+      mgr.saveConnection(
+        'Home',
+        '192.168.1.50',
+        dashboardPort: 9119,
+        gatewayPort: 8642,
+        apiKey: 'key',
+      );
       final id = mgr.getConnections().single.id;
 
       mgr.updateDashboardAuth(
@@ -681,6 +785,7 @@ void main() {
         gatewayPrefix: '',
         dashboardPrefix: '',
         dashboardProxied: false,
+        dashboardPort: 9119,
         username: '',
         password: '',
       );
@@ -688,7 +793,7 @@ void main() {
       expect(conn.gatewayPrefix, isNull);
       expect(conn.dashboardPrefix, isNull);
       expect(conn.dashboardProxied, isFalse);
-      expect(conn.dashboardPortOverride, isNull);
+      expect(conn.dashboardPortOverride, 9119);
       expect(conn.dashboardUsername, isNull);
       expect(conn.dashboardPassword, isNull);
     });
@@ -699,11 +804,11 @@ void main() {
       mgr.saveConnection(
         'Home',
         '192.168.1.50',
-        8642,
-        'key',
         dashboardPort: 30433,
         dashboardUsername: 'misha',
         dashboardPassword: 'secret',
+        gatewayPort: 8642,
+        apiKey: 'key',
       );
       final id = mgr.getConnections().single.id;
 
@@ -716,21 +821,21 @@ void main() {
     });
 
     test(
-      'updateConnection edits host, port, key, and clears optional fields',
+      'updateConnection edits host, ports, key, and clears optional fields',
       () async {
         final prefs = await SharedPreferences.getInstance();
         final mgr = ConnectionManager(prefs);
         mgr.saveConnection(
           'Home',
           '192.168.1.50',
-          8642,
-          'key',
-          gatewayPrefix: '/old-gateway',
+          dashboardPort: 30433,
           dashboardPrefix: '/old-dashboard',
           dashboardProxied: true,
-          dashboardPort: 30433,
           dashboardUsername: 'misha',
           dashboardPassword: 'secret',
+          gatewayPort: 8642,
+          apiKey: 'key',
+          gatewayPrefix: '/old-gateway',
         );
         final id = mgr.getConnections().single.id;
 
@@ -738,30 +843,66 @@ void main() {
           id,
           'Moved',
           'https://hermes.example.com',
-          8642,
-          'new-key',
-          gatewayPrefix: '',
+          dashboardPort: 9119,
           dashboardPrefix: '',
           dashboardProxied: false,
           dashboardUsername: '',
           dashboardPassword: '',
+          gatewayPort: 8642,
+          apiKey: 'new-key',
+          gatewayPrefix: '',
         );
 
         final conn = mgr.getConnections().single;
         expect(conn.id, id);
         expect(conn.label, 'Moved');
         expect(conn.host, 'hermes.example.com');
-        expect(conn.port, 443);
+        // The default dashboard port is a placeholder, so an HTTPS host
+        // replaces it with 443.
+        expect(conn.dashboardPortOverride, 443);
+        expect(conn.dashboardPort, 443);
+        expect(conn.gatewayPort, 8642);
         expect(conn.useHttps, isTrue);
         expect(conn.apiKey, 'new-key');
         expect(conn.gatewayPrefix, isNull);
         expect(conn.dashboardPrefix, isNull);
         expect(conn.dashboardProxied, isFalse);
-        expect(conn.dashboardPortOverride, isNull);
         expect(conn.dashboardUsername, isNull);
         expect(conn.dashboardPassword, isNull);
       },
     );
+
+    test('updateConnection can drop the gateway entirely', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final mgr = ConnectionManager(prefs);
+      mgr.saveConnection(
+        'Home',
+        '192.168.1.50',
+        dashboardPort: 9119,
+        gatewayPort: 8642,
+        apiKey: 'key',
+      );
+      final id = mgr.getConnections().single.id;
+
+      mgr.updateConnection(id, 'Home', '192.168.1.50', dashboardPort: 9119);
+
+      final conn = mgr.getConnections().single;
+      expect(conn.gatewayPort, isNull);
+      expect(conn.hasGateway, isFalse);
+      expect(conn.gatewayBaseUrl, isNull);
+      expect(conn.dashboardPort, 9119);
+    });
+
+    test('saveConnection defaults to a dashboard-only connection', () async {
+      final prefs = await SharedPreferences.getInstance();
+      final mgr = ConnectionManager(prefs);
+      mgr.saveConnection('Home', '192.168.1.50', dashboardPort: 9119);
+
+      final conn = mgr.getConnections().single;
+      expect(conn.hasGateway, isFalse);
+      expect(conn.apiKey, '');
+      expect(conn.dashboardBaseUrl, 'http://192.168.1.50:9119');
+    });
   });
 
   group('Path prefix support', () {
@@ -853,7 +994,7 @@ void main() {
         id: '1',
         label: 'Proxy',
         host: 'hermes.example.com',
-        port: 443,
+        gatewayPort: 443,
         apiKey: 'key',
         useHttps: true,
         gatewayPrefix: '/profile/peter',

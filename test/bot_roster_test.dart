@@ -91,4 +91,47 @@ void main() {
       );
     });
   });
+
+  group('visibleBots', () {
+    test('drops hidden names and keeps the roster order', () {
+      final shown = visibleBots(
+        [bot('alpha'), bot('beta'), bot('gamma')],
+        {'beta'},
+      );
+
+      expect(names(shown), ['alpha', 'gamma']);
+    });
+
+    test('includeHidden lists everything, so a hidden bot can come back', () {
+      final all = visibleBots(
+        [bot('alpha'), bot('beta')],
+        {'alpha', 'beta'},
+        includeHidden: true,
+      );
+
+      expect(names(all), ['alpha', 'beta']);
+    });
+
+    test('hiding a name that is not on the roster changes nothing', () {
+      final shown = visibleBots([bot('alpha')], {'ghost'});
+
+      expect(names(shown), ['alpha']);
+    });
+  });
+
+  group('compactBotLabel', () {
+    test('leaves a name that already fits alone', () {
+      expect(compactBotLabel('career'), 'career');
+      expect(compactBotLabel('default'), 'default');
+    });
+
+    test('drops vowels after the first to squeeze a long name', () {
+      expect(compactBotLabel('webresearch'), 'webrsrch');
+      expect(compactBotLabel('orchestrator'), 'orchstrtr');
+    });
+
+    test('keeps the leading vowel, so the name stays recognisable', () {
+      expect(compactBotLabel('automation'), 'autmtn');
+    });
+  });
 }

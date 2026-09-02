@@ -28,6 +28,7 @@ class BotProfile {
     required this.model,
     required this.skillCount,
     required this.canonicalSessionId,
+    this.resolvedSessionId,
     required this.canonicalPreview,
     required this.messageCount,
     required this.lastActive,
@@ -49,6 +50,16 @@ class BotProfile {
   /// falling back to the resolved row otherwise matches both, which is what
   /// makes mobile open the conversation the user's own desktop opens.
   final String? canonicalSessionId;
+
+  /// The live tip of that chat's compression lineage, when the gateway
+  /// reported one.
+  ///
+  /// The desktop's pointer names the row a chat *started* from. Once the host
+  /// compresses a long conversation, that row is still readable but can no
+  /// longer be resumed — only the tip can. Keeping both lets a turn fall back
+  /// to the tip without changing which conversation is opened.
+  final String? resolvedSessionId;
+
   final String canonicalPreview;
   final int messageCount;
   final double? lastActive;
@@ -70,6 +81,9 @@ class BotProfile {
       model: (row['model'] as String?) ?? '',
       skillCount: (row['skill_count'] as num?)?.toInt() ?? 0,
       canonicalSessionId: id != null && id.isNotEmpty ? id : null,
+      resolvedSessionId: resolved != null && resolved.isNotEmpty
+          ? resolved
+          : null,
       canonicalPreview: (chat?['preview'] as String?) ?? '',
       messageCount: (chat?['message_count'] as num?)?.toInt() ?? 0,
       lastActive: active is num ? active.toDouble() : null,
@@ -151,7 +165,27 @@ class BotGateway {
 
   /// Server-pushed turn events: `message.delta`, `message.complete`,
   /// `tool.*`, `turn.end`, `turn.error`.
+  ///
+  /// Every attached session shares this one socket, so listen through
+  /// [eventsFor] unless you really do want all of them.
   Stream<RpcEvent> get events => _rpc.events;
+
+  /// Turn events belonging to any of [sessionIds].
+  ///
+  /// A bot that messages another bot runs those turns on the same gateway
+  /// process, and their frames come down this socket too. An unfiltered
+  /// listener appends that traffic to whatever bubble it is streaming into and
+  /// lets a foreign `turn.end` close the turn early.
+  ///
+  /// Pass *every* id that names this chat — the row the desktop pinned, the
+  /// tip resume returned, whichever was asked for. One chat can be tagged by
+  /// more than one of them, and filtering on a single id risks dropping the
+  /// reply to our own turn, which leaves the composer spinning forever. Events
+  /// the gateway does not attribute to a session still pass: dropping them
+  /// would lose `turn.error` on a server that omits the id.
+  Stream<RpcEvent> eventsForAny(Set<String> sessionIds) => _rpc.events.where(
+    (event) => event.sessionId == null || sessionIds.contains(event.sessionId),
+  );
 
   /// Logs in over the dashboard session the app already holds, mints a
   /// single-use ticket, and connects. Tickets expire in ~30s and are consumed
@@ -203,26 +237,36 @@ class BotGateway {
     return BotConversation(
       sessionId: (res['session_id'] as String?) ?? sessionId,
       messages: rows is List
-          ? rows.whereType<Map<String, dynamic>>().map(BotMessage.fromRpc).toList()
+          ? rows
+                .whereType<Map<String, dynamic>>()
+                .map(BotMessage.fromRpc)
+                .toList()
           : const [],
     );
   }
 
   /// Opens [sessionId] in the gateway process so a turn can be submitted
-  /// against it.
+  /// against it, and returns **the id the gateway opened**.
+  ///
+  /// That is not always the id asked for: resume follows a compressed chat to
+  /// its live tip and answers with the row it actually attached. Submitting
+  /// against the id we asked for then fails with "session not found" — the
+  /// read path has always used the answer ([openCanonicalChat]), and so must
+  /// this one.
   ///
   /// Deliberately separate from reading: attaching rebinds the session's
   /// event transport to this client, so it waits until the user actually
   /// sends rather than happening merely because a chat was opened.
-  Future<void> attach(String sessionId, String profile) => _rpc.call(
-    'session.resume',
-    {
+  Future<String> attach(String sessionId, String profile) async {
+    final res = await _rpc.call('session.resume', {
       'session_id': sessionId,
       'profile': profile,
       // The transcript is already on screen, read over REST.
       'omit_messages': true,
-    },
-  );
+    });
+    final opened = res['session_id'];
+    return opened is String && opened.isNotEmpty ? opened : sessionId;
+  }
 
   /// Sends a turn. The reply arrives on [events], not in the response.
   Future<void> submit(String sessionId, String text) =>

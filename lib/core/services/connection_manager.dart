@@ -28,32 +28,39 @@ class ConnectionManager {
     }).toList();
   }
 
+  /// Saves a new connection. [dashboardPort] is the primary port the user
+  /// typed; an HTTPS URL in [host] can still override it (see
+  /// [SavedConnection.normalizeHostAndPort]). The gateway arguments are
+  /// optional — pass a null [gatewayPort] for a dashboard-only connection.
   void saveConnection(
     String label,
-    String host,
-    int port,
-    String apiKey, {
-    String? gatewayPrefix,
+    String host, {
+    required int dashboardPort,
     String? dashboardPrefix,
     bool dashboardProxied = false,
-    int? dashboardPort,
     String? dashboardUsername,
     String? dashboardPassword,
+    int? gatewayPort,
+    String apiKey = '',
+    String? gatewayPrefix,
   }) {
-    final normalized = SavedConnection.normalizeHostAndPort(host, port);
+    final normalized = SavedConnection.normalizeHostAndPort(
+      host,
+      dashboardPort,
+    );
     final conn = SavedConnection(
       id: _uuid.v4(),
       label: label,
       host: normalized.host,
-      port: normalized.port,
-      apiKey: apiKey,
       useHttps: normalized.useHttps,
-      gatewayPrefix: gatewayPrefix,
+      dashboardPortOverride: normalized.port,
       dashboardPrefix: dashboardPrefix,
       dashboardProxied: dashboardProxied,
-      dashboardPortOverride: dashboardPort,
       dashboardUsername: dashboardUsername,
       dashboardPassword: dashboardPassword,
+      gatewayPort: gatewayPort,
+      apiKey: apiKey,
+      gatewayPrefix: gatewayPrefix,
     );
     final current = getConnections();
     current.insert(0, conn);
@@ -61,25 +68,29 @@ class ConnectionManager {
   }
 
   /// Updates all editable fields on an existing connection while preserving its
-  /// id and list position. Empty optional strings clear their saved values.
+  /// id and list position. Empty optional strings clear their saved values, and
+  /// a null [gatewayPort] drops the gateway.
   void updateConnection(
     String connId,
     String label,
-    String host,
-    int port,
-    String apiKey, {
-    String? gatewayPrefix,
+    String host, {
+    required int dashboardPort,
     String? dashboardPrefix,
     bool dashboardProxied = false,
-    int? dashboardPort,
     String? dashboardUsername,
     String? dashboardPassword,
+    int? gatewayPort,
+    String apiKey = '',
+    String? gatewayPrefix,
   }) {
     final current = getConnections();
     final idx = current.indexWhere((c) => c.id == connId);
     if (idx < 0) return;
 
-    final normalized = SavedConnection.normalizeHostAndPort(host, port);
+    final normalized = SavedConnection.normalizeHostAndPort(
+      host,
+      dashboardPort,
+    );
     final gateway = gatewayPrefix?.trim();
     final dashboard = dashboardPrefix?.trim();
     final dashUser = dashboardUsername?.trim();
@@ -88,22 +99,22 @@ class ConnectionManager {
     current[idx] = current[idx].copyWith(
       label: label,
       host: normalized.host,
-      port: normalized.port,
-      apiKey: apiKey,
       useHttps: normalized.useHttps,
-      gatewayPrefix: gateway == null || gateway.isEmpty ? null : gateway,
-      clearGatewayPrefix: gateway != null && gateway.isEmpty,
+      dashboardPortOverride: normalized.port,
       dashboardPrefix: dashboard == null || dashboard.isEmpty
           ? null
           : dashboard,
       clearDashboardPrefix: dashboard != null && dashboard.isEmpty,
       dashboardProxied: dashboardProxied,
-      dashboardPortOverride: dashboardPort,
-      clearDashboardPort: dashboardPort == null,
       dashboardUsername: dashUser == null || dashUser.isEmpty ? null : dashUser,
       clearDashboardUsername: dashUser != null && dashUser.isEmpty,
       dashboardPassword: dashPass == null || dashPass.isEmpty ? null : dashPass,
       clearDashboardPassword: dashPass != null && dashPass.isEmpty,
+      gatewayPort: gatewayPort,
+      clearGatewayPort: gatewayPort == null,
+      apiKey: apiKey,
+      gatewayPrefix: gateway == null || gateway.isEmpty ? null : gateway,
+      clearGatewayPrefix: gateway != null && gateway.isEmpty,
     );
     _saveAll(current);
   }
@@ -112,7 +123,7 @@ class ConnectionManager {
   /// connection. Empty strings clear the corresponding field.
   void updateDashboardAuth(
     String connId, {
-    int? dashboardPort,
+    required int dashboardPort,
     required String username,
     required String password,
     String? gatewayPrefix,
@@ -135,7 +146,6 @@ class ConnectionManager {
       clearDashboardPrefix: dashboard != null && dashboard.isEmpty,
       dashboardProxied: dashboardProxied,
       dashboardPortOverride: dashboardPort,
-      clearDashboardPort: dashboardPort == null,
       dashboardUsername: u.isEmpty ? null : u,
       clearDashboardUsername: u.isEmpty,
       dashboardPassword: p.isEmpty ? null : p,
@@ -192,9 +202,7 @@ class ApiClient {
   /// canonical chat needs a wide enough window to see past newer cron runs.
   Future<List<Session>> getSessions({int? limit}) async {
     final res = await _http.get(
-      Uri.parse(
-        '$baseUrl/api/sessions${limit == null ? '' : '?limit=$limit'}',
-      ),
+      Uri.parse('$baseUrl/api/sessions${limit == null ? '' : '?limit=$limit'}'),
       headers: _headers,
     );
     if (res.statusCode != 200) {
@@ -837,6 +845,24 @@ class DashboardClient {
       latest.putIfAbsent(profile, () => stamp.toDouble());
     }
     return latest;
+  }
+
+  /// One profile's sessions, newest first.
+  ///
+  /// The same endpoint the roster uses for recency, scoped to one profile. It
+  /// is a REST read against the profile's store, so it still answers when the
+  /// gateway socket cannot resume a row — which makes it the way to find out
+  /// what the host actually has.
+  Future<List<Map<String, dynamic>>> getProfileSessions(
+    String profile, {
+    int limit = 50,
+  }) async {
+    final data = await apiGet(
+      'profiles/sessions?profile=$profile&order=recent&limit=$limit',
+    );
+    final rows = data['sessions'];
+    if (rows is! List) return const [];
+    return rows.whereType<Map<String, dynamic>>().toList();
   }
 
   /// Whether one gateway is fronting every profile. It changes how a bot is

@@ -48,6 +48,30 @@ const LinearGradient hermesAccentGradient = LinearGradient(
   colors: [hermesMagenta, hermesViolet],
 );
 
+/// Per-bot avatar accents, so a roster reads as a set of separate identities
+/// rather than one repeated brand mark. Hues stay inside the neon family the
+/// rest of the design uses.
+const List<Color> hermesBotAccents = [
+  hermesMagenta, // magenta
+  Color(0xFF7C5CFF), // indigo
+  hermesCyan, // cyan
+  Color(0xFF4DF5A8), // mint
+  Color(0xFFFFB35C), // amber
+  hermesAlert, // rose
+  Color(0xFFB8F54D), // lime
+  Color(0xFF5CC9FF), // sky
+];
+
+/// The accent [seed] owns. Hashed rather than positional so a bot keeps its
+/// colour when the roster reorders (it sorts by recency) or reloads.
+Color hermesBotAccent(String seed) {
+  var hash = 0;
+  for (final unit in seed.codeUnits) {
+    hash = (hash * 31 + unit) & 0x7fffffff;
+  }
+  return hermesBotAccents[hash % hermesBotAccents.length];
+}
+
 // ---------------------------------------------------------------------------
 // Shape + elevation tokens
 // ---------------------------------------------------------------------------
@@ -162,10 +186,9 @@ ThemeData hermesTheme(Brightness brightness) {
     useMaterial3: true,
   );
 
-  final textTheme = GoogleFonts.spaceGroteskTextTheme(base.textTheme).apply(
-    bodyColor: scheme.onSurface,
-    displayColor: scheme.onSurface,
-  );
+  final textTheme = GoogleFonts.spaceGroteskTextTheme(
+    base.textTheme,
+  ).apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
 
   return base.copyWith(
     textTheme: textTheme,
